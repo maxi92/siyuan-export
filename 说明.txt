@@ -1,0 +1,70 @@
+0.思源笔记的结构很简单，根节点为N个笔记本，每个笔记本下有笔记，笔记下还可以创建子笔记，子笔记还可以创建子笔记，以此逻辑递归。
+
+1.通过调用思源笔记的API接口：/api/notebook/lsNotebooks，获取当前所有的笔记本列表
+
+
+2.然后再通过调用思源笔记的sql查询接口获取该笔记本下所有笔记的信息，包括id，标题、路径、更新时间等。
+希望能够通过查询出的结果，组装出思源笔记的树形结构：笔记本->笔记本下的一级笔记->笔记下的其他递归层级笔记
+
+接口信息：
+接口路径：/api/query/sql
+
+接口请求体schema:
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://github.com/siyuan-community/siyuan-sdk/raw/main/schemas/kernel/api/query/sql/payload.schema.json",
+    "$comment": "v2.9.3",
+    "$ref": "#/$defs/root",
+    "$defs": {
+        "root": {
+            "title": "payload body",
+            "description": "query the database using SQL",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "stmt"
+            ],
+            "properties": {
+                "stmt": {
+                    "type": "string",
+                    "description": "SQL query statements"
+                }
+            }
+        }
+    }
+}
+
+接口响应体schema：
+/**
+ * render template file
+ */
+export interface IResponse {
+    /**
+     * status code
+     */
+    readonly code: number;
+    readonly data: { [key: string]: any }[];
+    /**
+     * status message
+     */
+    readonly msg: string;
+}
+
+你需要查询的sql是：
+  select id,content,updated,path from blocks
+  where box='${boxID}' and type='d'
+  order by updated asc
+  
+  其中boxId为上一步中查出来的笔记本的id。
+  查询结果中，id为该笔记的id，content为笔记标题，path为路径（由于思源笔记是多层结构，笔记下还可以建笔记。如果该条记录是子笔记，则路径包含每一层的笔记id），upadated为最新更新时间。
+  
+  一个查询结果的示例为：
+   {
+            "content": "海带豆腐虾皮汤",
+            "id": "20250311204950-6dq3vcj",
+            "path": "/20240806202611-ecxtzjt/20250311204950-6dq3vcj.sy",
+            "updated": "20250311205339"
+        }
+		
+
+  
