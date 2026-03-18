@@ -17,17 +17,23 @@ Key capabilities:
 ### Running the tool
 ```bash
 # Basic usage (requires SiYuan Note running with API enabled)
-python main.py --token your_api_token
+./run.sh --token your_api_token
 
 # With custom output directory
-python main.py --token your_api_token --output ./export
+./run.sh --token your_api_token --output ./export
 
 # With remote SiYuan instance
-python main.py --token your_api_token --base-url http://192.168.1.100:6806
+./run.sh --token your_api_token --base-url http://192.168.1.100:6806
 ```
 
 ### Installing dependencies
 ```bash
+# One-command install (creates venv and installs deps)
+./install.sh
+
+# Or manually
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 

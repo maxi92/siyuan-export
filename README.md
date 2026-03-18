@@ -20,6 +20,12 @@
 ### 安装依赖
 
 ```bash
+# 一键安装（自动创建虚拟环境并安装依赖）
+./install.sh
+
+# 或手动安装
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -34,6 +40,11 @@ pip install -r requirements.txt
 ### 2. 运行程序
 
 ```bash
+# 使用便捷脚本（自动激活虚拟环境）
+./run.sh --token your_token_here
+
+# 或手动激活虚拟环境后运行
+source venv/bin/activate
 python main.py --token your_token_here
 ```
 
@@ -49,13 +60,13 @@ python main.py --token your_token_here
 
 ```bash
 # 基本用法
-python main.py --token your_token_here
+./run.sh --token your_token_here
 
 # 指定输出目录
-python main.py --token your_token_here --output ./my_export
+./run.sh --token your_token_here --output ./my_export
 
 # 使用自定义 API 地址
-python main.py --token your_token_here --base-url http://192.168.1.100:6806
+./run.sh --token your_token_here --base-url http://192.168.1.100:6806
 ```
 
 ## 输出示例
@@ -119,8 +130,11 @@ python main.py --token your_token_here --base-url http://192.168.1.100:6806
 ```
 siyuan-export/
 ├── main.py                 # 主程序入口
+├── run.sh                  # 便捷运行脚本（自动激活虚拟环境）
+├── install.sh              # 安装脚本（创建虚拟环境并安装依赖）
 ├── requirements.txt        # 依赖项
 ├── README.md              # 项目说明
+├── venv/                  # Python 虚拟环境（自动创建）
 └── siyuan_exporter/       # 核心模块
     ├── __init__.py
     ├── client.py          # API 客户端
