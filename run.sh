@@ -1,12 +1,12 @@
 #!/bin/bash
-# 思源笔记导出工具运行脚本
-# 自动激活虚拟环境并运行程序
-
-# 获取脚本所在目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# 激活虚拟环境
-source "$SCRIPT_DIR/venv/bin/activate"
+# Windows 下虚拟环境的激活脚本路径通常在 Scripts 目录下
+# 但为了兼容性，建议直接判断路径
+if [ -d "$SCRIPT_DIR/.venv/Scripts" ]; then
+    source "$SCRIPT_DIR/.venv/Scripts/activate"
+else
+    source "$SCRIPT_DIR/.venv/bin/activate"
+fi
 
-# 运行主程序
 python "$SCRIPT_DIR/main.py" "$@"

@@ -15,7 +15,7 @@ fi
 
 # 创建虚拟环境
 echo "🐍 正在创建虚拟环境..."
-uv venv venv
+uv venv
 
 # 安装依赖
 echo "📥 正在安装依赖..."
