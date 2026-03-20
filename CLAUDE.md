@@ -4,13 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-思源笔记导出工具 (SiYuan Note Exporter) - A Python tool that calls the SiYuan Note API to export notebook structures to JSON.
+思源笔记导出工具 (SiYuan Note Exporter) - A Python tool that calls the SiYuan Note API to export notebook structures to JSON and Markdown.
 
 Key capabilities:
 - Fetches notebook list via `/api/notebook/lsNotebooks`
 - Queries all documents per notebook via `/api/query/sql`
 - Builds hierarchical tree structure from flat document data
 - Exports tree structure to JSON
+- **Exports random document Markdown content via `/api/export/exportMdContent`**
 
 ## Common Development Commands
 
@@ -48,6 +49,7 @@ In SiYuan Note: Settings → About → API Token
 - Handles HTTP communication with SiYuan API
 - `get_notebooks()`: Returns list of active (non-closed) notebooks
 - `get_docs_by_notebook(notebook_id)`: Executes SQL query to fetch all documents in a notebook
+- `get_doc_markdown(doc_id)`: Fetches Markdown content for a specific document via `/api/export/exportMdContent`
 - API uses Token auth in `Authorization` header
 - Default base URL: `http://127.0.0.1:6806`
 
@@ -62,8 +64,10 @@ In SiYuan Note: Settings → About → API Token
 
 **Main** (`main.py`)
 - CLI entry point with argparse
-- Workflow: fetch notebooks → fetch docs per notebook → build trees → print to console → export JSON
-- Output: `output/siyuan_tree_YYYYMMDD_HHMMSS.json`
+- Workflow: fetch notebooks → fetch docs per notebook → build trees → print to console → export JSON → **export random document Markdown**
+- Output:
+  - Tree structure: `output/siyuan_tree_YYYYMMDD_HHMMSS.json`
+  - **Random document Markdown: `output/{title}_{doc_id}.md`**
 
 ### SiYuan API Structure
 
@@ -86,6 +90,35 @@ order by updated asc
 - Second-to-last segment = direct parent document ID
 - Single segment after notebook ID = top-level document
 
+### Markdown Export Feature
+
+**API Endpoint:** `POST /api/export/exportMdContent`
+
+**Request body:**
+```json
+{
+    "id": "20241007023356-ciuje9u"
+}
+```
+
+**Response structure:**
+```json
+{
+    "code": 0,
+    "msg": "",
+    "data": {
+        "content": "# Document Title\n\nMarkdown content...",
+        "hPath": "/notebook/path"
+    }
+}
+```
+
+**Implementation details:**
+- Random document selection using `random.choice()` from collected documents
+- Safe filename generation (alphanumeric, spaces, hyphens, underscores only)
+- File naming format: `{safe_title}_{doc_id}.md`
+- Output directory: same as JSON export (default: `./output`)
+
 ### Data Flow
 
 ```
@@ -96,11 +129,14 @@ For each notebook: SQL query → flat doc list
 TreeBuilder: path analysis → hierarchical tree
     ↓
 Console output + JSON export
+    ↓
+Random selection → /api/export/exportMdContent → Markdown file export
 ```
 
 ### Next Planned Features
 
 Based on README.md roadmap:
-- Export document content as Markdown files
+- ~~Export document content as Markdown files~~ ✅ Implemented (random document export for verification)
+- Export all documents as Markdown files (full export)
 - Support image/resource file export
 - Support sync/update functionality

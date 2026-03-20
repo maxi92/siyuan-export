@@ -93,3 +93,38 @@ class SiYuanClient:
         except Exception as e:
             print(f"查询文档时出错: {e}")
             return []
+
+    def get_doc_markdown(self, doc_id: str) -> Optional[str]:
+        """
+        获取指定笔记的 Markdown 内容
+
+        Args:
+            doc_id: 笔记 ID
+
+        Returns:
+            Markdown 内容字符串，获取失败返回 None
+        """
+        url = f"{self.base_url}/api/export/exportMdContent"
+
+        body = {"id": doc_id}
+
+        try:
+            response = requests.post(url, json=body, headers=self.headers, timeout=30)
+            response.raise_for_status()
+            resp_json = response.json()
+
+            if resp_json.get("code") == 0 and "data" in resp_json:
+                return resp_json["data"].get("content")
+            else:
+                print(f"获取 Markdown 失败: {resp_json.get('msg', '未知错误')}")
+                return None
+
+        except requests.exceptions.ConnectionError:
+            print(f"连接失败，请确保思源笔记已启动并开启了 API 服务")
+            return None
+        except requests.exceptions.Timeout:
+            print(f"请求超时")
+            return None
+        except Exception as e:
+            print(f"获取 Markdown 时出错: {e}")
+            return None
