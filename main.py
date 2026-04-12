@@ -21,6 +21,7 @@ from typing import List, Dict, Any
 
 from siyuan_exporter.client import SiYuanClient
 from siyuan_exporter.tree_builder import TreeBuilder, NotebookNode, DocNode
+from siyuan_exporter.markdown_processor import preprocess_markdown
 
 
 def export_to_json(trees: List[NotebookNode], output_path: str):
@@ -106,6 +107,9 @@ def export_random_doc_markdown(client: SiYuanClient, trees: List[NotebookNode], 
         print("   ❌ 获取 Markdown 内容失败")
         return False
 
+    # 预处理：还原字面换行符并转换表格为列表格式
+    markdown_content = preprocess_markdown(markdown_content)
+
     # 保存到文件
     safe_title = "".join(c for c in doc_title if c.isalnum() or c in (' ', '-', '_')).strip()
     if not safe_title:
@@ -120,6 +124,50 @@ def export_random_doc_markdown(client: SiYuanClient, trees: List[NotebookNode], 
     print(f"   文件大小: {len(markdown_content)} 字符")
 
     return True
+
+
+def export_single_doc_markdown(client: SiYuanClient, doc_id: str, output_dir: str):
+    """
+    导出指定笔记（文档）的 Markdown 内容
+
+    Args:
+        client: SiYuanClient 实例
+        doc_id: 笔记 ID
+        output_dir: 输出目录
+    """
+    print(f"\n📄 正在获取笔记 {doc_id} 的 Markdown 内容...")
+
+    markdown_content = client.get_doc_markdown(doc_id)
+    if markdown_content is None:
+        print("❌ 获取 Markdown 内容失败")
+        return
+
+    # 预处理：还原字面换行符并转换表格为列表格式
+    markdown_content = preprocess_markdown(markdown_content)
+
+    # 从内容中提取标题（如果有 YAML frontmatter 中的 title）
+    import re
+    title_match = re.search(r'^# 标题：(.+)$', markdown_content, re.MULTILINE)
+    if title_match:
+        doc_title = title_match.group(1).strip()
+    else:
+        # 尝试从第一行获取标题
+        first_line = markdown_content.split('\n')[0].strip()
+        if first_line.startswith('# '):
+            doc_title = first_line[2:].strip()
+        else:
+            doc_title = doc_id
+
+    safe_title = "".join(c for c in doc_title if c.isalnum() or c in (' ', '-', '_')).strip()
+    if not safe_title:
+        safe_title = doc_id
+
+    output_file = os.path.join(output_dir, f"{safe_title}_{doc_id}.md")
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(markdown_content)
+
+    print(f"✅ Markdown 已导出到: {output_file}")
+    print(f"   文件大小: {len(markdown_content)} 字符")
 
 
 def print_summary(trees: List[NotebookNode]):
@@ -160,6 +208,7 @@ def main():
   python main.py --token your_token_here
   python main.py --token your_token_here --output ./export
   python main.py --token your_token_here --base-url http://127.0.0.1:6806
+  python main.py --token your_token_here --doc-id 20240806202611-ecxtzjt
         """
     )
     parser.add_argument('--token', required=True, help='思源笔记 API Token')
@@ -167,6 +216,8 @@ def main():
                        help='思源笔记 API 地址 (默认: http://127.0.0.1:6806)')
     parser.add_argument('--output', default='./output',
                        help='输出目录 (默认: ./output)')
+    parser.add_argument('--doc-id',
+                       help='要导出的笔记（文档）ID，导出该笔记的 Markdown 内容')
 
     args = parser.parse_args()
 
@@ -235,6 +286,13 @@ def main():
     print("📝 随机笔记 Markdown 导出")
     print("=" * 50)
     export_random_doc_markdown(client, trees, args.output)
+
+    # 7. 如果指定了笔记 ID，导出该笔记的 Markdown
+    if args.doc_id:
+        print("\n" + "=" * 50)
+        print("📄 指定笔记 Markdown 导出")
+        print("=" * 50)
+        export_single_doc_markdown(client, args.doc_id, args.output)
 
     print("\n🎉 完成！")
 
