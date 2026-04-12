@@ -22,6 +22,7 @@ from typing import List, Dict, Any
 from siyuan_exporter.client import SiYuanClient
 from siyuan_exporter.tree_builder import TreeBuilder, NotebookNode, DocNode
 from siyuan_exporter.markdown_processor import preprocess_markdown
+from siyuan_exporter.sync_manager import SyncManager, NotebookSyncRecord, DocSyncRecord
 
 
 def export_to_json(trees: List[NotebookNode], output_path: str):
@@ -275,6 +276,160 @@ def export_notebook_markdown(client: SiYuanClient, notebook_node: NotebookNode, 
     print(f"\n📊 导出统计: 总计 {total_docs} 篇, 成功 {success_count} 篇, 失败 {fail_count} 篇")
 
 
+def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: NotebookNode, output_dir: str):
+    """
+    增量导出整个笔记本的所有笔记为 Markdown 文件
+
+    逻辑：
+    1. 如果目标位置没有该笔记对应的md文件，则创建
+    2. 如果文件已存在，则比较 updated 时间，仅在上次导出后有更新时才覆盖
+    3. 如果笔记已不存在但文件/文件夹还在，则删除
+
+    Args:
+        client: SiYuanClient 实例
+        notebook_node: 笔记本节点（包含树形结构）
+        output_dir: 输出目录
+    """
+    sync_manager = SyncManager(output_dir)
+
+    # 创建安全的笔记本文件夹名称（处理重名情况）
+    safe_notebook_name = "".join(c for c in notebook_node.name if c.isalnum() or c in (' ', '-', '_')).strip()
+    if not safe_notebook_name:
+        safe_notebook_name = notebook_node.id
+
+    notebook_dir = os.path.join(output_dir, safe_notebook_name)
+    os.makedirs(notebook_dir, exist_ok=True)
+
+    print(f"\n📁 笔记本导出目录: {notebook_dir}")
+
+    # 加载上次同步记录
+    sync_record = sync_manager.load_record(notebook_node)
+    if sync_record:
+        print(f"   📋 上次同步时间: {sync_record.last_sync[:19]}")
+    else:
+        print(f"   📋 首次同步，将创建所有文件")
+
+    # 创建新的同步记录
+    from datetime import datetime
+    new_sync_record = NotebookSyncRecord(
+        notebook_id=notebook_node.id,
+        notebook_name=notebook_node.name,
+        last_sync=datetime.now().isoformat(),
+        docs={}
+    )
+
+    # 统计
+    stats = {"created": 0, "updated": 0, "unchanged": 0, "failed": 0, "deleted_files": 0, "deleted_folders": 0}
+
+    def get_safe_filename(title: str, doc_id: str) -> str:
+        """生成安全的文件名"""
+        safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
+        if not safe_title:
+            safe_title = doc_id
+        if len(safe_title) > 100:
+            safe_title = safe_title[:100]
+        return f"{safe_title}_{doc_id}.md"
+
+    def export_doc_recursive(node: DocNode, current_dir: str, parent_title: str = ""):
+        """
+        递归导出文档及其子文档
+        """
+        doc_title = node.title
+        doc_id = node.id
+
+        prefix = "  " * node.level
+        filename = get_safe_filename(doc_title, doc_id)
+        file_path = os.path.join(current_dir, filename)
+        rel_path = os.path.relpath(file_path, notebook_dir)
+
+        # 判断是否需要更新
+        doc_record = sync_record.docs.get(doc_id) if sync_record else None
+        needs_update = sync_manager.should_update(node, doc_record, file_path)
+
+        if doc_record is None:
+            action = "🆕 创建"
+            stats["created"] += 1
+        elif needs_update:
+            action = "🔄 更新"
+            stats["updated"] += 1
+        else:
+            action = "⏭️  跳过"
+            stats["unchanged"] += 1
+
+        if needs_update:
+            print(f"{prefix}{action}: {doc_title}")
+
+            # 获取 Markdown 内容
+            markdown_content = client.get_doc_markdown(doc_id)
+
+            if markdown_content is None:
+                print(f"{prefix}   ❌ 获取失败: {doc_title}")
+                stats["failed"] += 1
+            else:
+                # 预处理 Markdown
+                markdown_content = preprocess_markdown(markdown_content)
+
+                # 保存到文件
+                try:
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        f.write(markdown_content)
+                except Exception as e:
+                    print(f"{prefix}   ❌ 写入文件失败: {e}")
+                    stats["failed"] += 1
+        else:
+            # 跳过未变更的文件
+            pass
+
+        # 记录当前同步状态
+        new_sync_record.docs[doc_id] = DocSyncRecord(
+            doc_id=doc_id,
+            title=doc_title,
+            updated=node.updated,
+            last_sync=datetime.now().isoformat(),
+            file_path=rel_path
+        )
+
+        # 处理子文档
+        if node.children:
+            safe_folder_name = "".join(c for c in doc_title if c.isalnum() or c in (' ', '-', '_')).strip()
+            if not safe_folder_name:
+                safe_folder_name = doc_id
+            if len(safe_folder_name) > 100:
+                safe_folder_name = safe_folder_name[:100]
+
+            child_dir = os.path.join(current_dir, safe_folder_name)
+            os.makedirs(child_dir, exist_ok=True)
+
+            if needs_update:
+                print(f"{prefix}   📂 子文件夹: {safe_folder_name}/ ({len(node.children)} 个子文档)")
+
+            for child in node.children:
+                export_doc_recursive(child, child_dir, doc_title)
+
+    # 从笔记本的直接子文档开始导出
+    for doc_node in notebook_node.children:
+        export_doc_recursive(doc_node, notebook_dir)
+
+    # 清理孤儿文件和文件夹
+    print(f"\n🧹 清理已删除的笔记文件...")
+    deleted_files, deleted_folders = sync_manager.remove_orphaned_files(notebook_node, notebook_dir)
+    stats["deleted_files"] = deleted_files
+    stats["deleted_folders"] = deleted_folders
+
+    if deleted_files == 0 and deleted_folders == 0:
+        print(f"   ✨ 无需清理")
+    else:
+        print(f"   🗑️  删除 {deleted_files} 个文件, {deleted_folders} 个文件夹")
+
+    # 保存同步记录
+    sync_manager.save_record(notebook_node, new_sync_record)
+    print(f"   💾 同步记录已保存")
+
+    print(f"\n📊 导出统计: 新建 {stats['created']} 篇, 更新 {stats['updated']} 篇, 跳过 {stats['unchanged']} 篇, 失败 {stats['failed']} 篇")
+    if stats['deleted_files'] > 0 or stats['deleted_folders'] > 0:
+        print(f"   🗑️ 清理: {stats['deleted_files']} 个文件, {stats['deleted_folders']} 个文件夹")
+
+
 def print_summary(trees: List[NotebookNode]):
     """
     打印统计摘要
@@ -315,6 +470,7 @@ def main():
   python main.py --token your_token_here --base-url http://127.0.0.1:6806
   python main.py --token your_token_here --doc-id 20240806202611-ecxtzjt
   python main.py --token your_token_here --notebook-id 20240806202611-ecxtzjt
+  python main.py --token your_token_here --notebook-id 20240806202611-ecxtzjt --sync
         """
     )
     parser.add_argument('--token', required=True, help='思源笔记 API Token')
@@ -326,6 +482,8 @@ def main():
                        help='要导出的笔记（文档）ID，导出该笔记的 Markdown 内容')
     parser.add_argument('--notebook-id',
                        help='要导出的笔记本 ID，导出该笔记本下所有笔记的 Markdown 内容（按树形结构组织）')
+    parser.add_argument('--sync', action='store_true',
+                       help='启用增量同步模式（与 --notebook-id 配合使用），只导出有更新的笔记并清理已删除的文件')
 
     args = parser.parse_args()
 
@@ -405,7 +563,10 @@ def main():
     # 8. 如果指定了笔记本 ID，导出该笔记本下所有笔记的 Markdown
     if args.notebook_id:
         print("\n" + "=" * 50)
-        print("📚 笔记本批量 Markdown 导出")
+        if args.sync:
+            print("📚 笔记本增量同步导出")
+        else:
+            print("📚 笔记本批量 Markdown 导出")
         print("=" * 50)
 
         # 查找指定的笔记本
@@ -422,7 +583,10 @@ def main():
                 print(f"   - {tree.name} (ID: {tree.id})")
         else:
             print(f"📒 正在导出笔记本: {target_notebook.name}")
-            export_notebook_markdown(client, target_notebook, args.output)
+            if args.sync:
+                export_notebook_markdown_incremental(client, target_notebook, args.output)
+            else:
+                export_notebook_markdown(client, target_notebook, args.output)
 
     print("\n🎉 完成！")
 

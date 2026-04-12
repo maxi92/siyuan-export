@@ -14,6 +14,7 @@ Key capabilities:
 - **Exports random document Markdown content via `/api/export/exportMdContent`**
 - **Exports specific document Markdown by `--doc-id`**
 - **Exports entire notebook as Markdown files by `--notebook-id` with tree-structured organization**
+- **Incremental sync mode via `--sync` flag (only updates changed files, deletes removed ones)**
 - **Converts Markdown tables to list format for better AI readability**
 
 ## Common Development Commands
@@ -34,6 +35,9 @@ Key capabilities:
 
 # Export entire notebook with tree-structured file organization
 ./run.sh --token your_api_token --notebook-id 20240806202611-ecxtzjt
+
+# Incremental sync mode (only export changed files, delete removed ones)
+./run.sh --token your_api_token --notebook-id 20240806202611-ecxtzjt --sync
 ```
 
 ### Installing dependencies
@@ -80,6 +84,19 @@ In SiYuan Note: Settings → About → API Token
   - Converts columns to `**key**: value` list items
 - `preprocess_markdown(raw_markdown)`: Preprocesses raw content (converts literal `\n` to newlines)
 
+**SyncManager** (`siyuan_exporter/sync_manager.py`)
+- Manages incremental synchronization state for notebook exports
+- Key dataclasses: `NotebookSyncRecord`, `DocSyncRecord`
+- Core methods:
+  - `load_record()`: Loads previous sync state from `.last_sync.json`
+  - `should_update(doc, record, file_path)`: Checks if file needs updating by verifying:
+    1. File does not exist on disk → needs creation
+    2. `DocNode.updated` timestamp is newer than last sync → needs update
+    3. Otherwise → skip (file unchanged)
+  - `remove_orphaned_files()`: Deletes Markdown files and folders no longer present in SiYuan
+  - `save_record()`: Persists current sync state to JSON
+- Sync record stored per notebook at `output/{notebook_name}/.last_sync.json`
+
 **Main** (`main.py`)
 - CLI entry point with argparse
 - Arguments:
@@ -88,17 +105,20 @@ In SiYuan Note: Settings → About → API Token
   - `--output`: Output directory (default: `./output`)
   - `--doc-id`: Specific document ID to export (optional)
   - `--notebook-id`: Export entire notebook with tree-structured organization (optional)
+  - `--sync`: Enable incremental sync mode (only with `--notebook-id`)
 - Workflow:
   1. Fetch notebooks → fetch docs per notebook → build trees
   2. Print tree to console + export JSON
   3. Export random document Markdown (with table conversion)
   4. **If `--doc-id` provided: export specific document Markdown (with table conversion)**
   5. **If `--notebook-id` provided: export all documents in the notebook with tree-structured file organization**
+  6. **If `--sync` flag also provided: incremental sync mode (create/update/delete based on timestamps)**
 - Output:
   - Tree structure: `output/siyuan_tree_YYYYMMDD_HHMMSS.json`
   - Random document Markdown: `output/{title}_{doc_id}.md`
   - **Specific document Markdown (when `--doc-id` used): `output/{title}_{doc_id}.md`**
   - **Notebook export (when `--notebook-id` used): `output/{notebook_name}/` with tree-structured subdirectories**
+  - **Sync record (when `--sync` used): `output/{notebook_name}/.last_sync.json`**
 
 ### SiYuan API Structure
 
@@ -168,6 +188,8 @@ Random selection → /api/export/exportMdContent → preprocess_markdown() → M
 (Alternative) --doc-id provided → /api/export/exportMdContent → preprocess_markdown() → Markdown file export
     ↓
 (Alternative) --notebook-id provided → recursive export → tree-structured directory with all Markdown files
+    ↓
+(Alternative) --sync flag provided → incremental sync mode → compare timestamps → create/update/delete as needed
 ```
 
 **Notebook Export File Structure:**
@@ -204,5 +226,5 @@ Based on README.md roadmap:
 - ~~Export document content as Markdown files~~ ✅ Implemented (random/single document export with table-to-list conversion)
 - ~~Post-process Markdown for AI readability~~ ✅ Implemented (table-to-list conversion, image removal, YAML frontmatter extraction)
 - ~~Export all documents as Markdown files~~ ✅ Implemented (`--notebook-id` for batch export with tree-structured organization)
+- ~~Support sync/update functionality~~ ✅ Implemented (`--sync` flag with incremental create/update/delete)
 - Support image/resource file export
-- Support sync/update functionality

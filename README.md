@@ -60,6 +60,7 @@ python main.py --token your_token_here
 | `--output` | 否 | ./output | 输出目录 |
 | `--doc-id` | 否 | - | 指定要导出的笔记（文档）ID |
 | `--notebook-id` | 否 | - | 指定要导出的笔记本 ID（导出该笔记本下所有笔记） |
+| `--sync` | 否 | - | 启用增量同步模式（需配合 `--notebook-id` 使用） |
 
 ### 示例
 
@@ -78,6 +79,9 @@ python main.py --token your_token_here
 
 # 批量导出整个笔记本（按树形结构组织）
 ./run.sh --token your_token_here --notebook-id 20240806202611-ecxtzjt
+
+# 增量同步模式（只导出有更新的笔记，删除已不存在的笔记）
+./run.sh --token your_token_here --notebook-id 20240806202611-ecxtzjt --sync
 ```
 
 ## 输出说明
@@ -110,6 +114,41 @@ output/
 - 父笔记的 `.md` 文件与其子笔记文件夹同级
 - 子笔记放在以父笔记名称命名的文件夹下
 - 支持无限层级嵌套
+
+### 增量同步模式
+
+使用 `--sync` 参数启用增量同步，适合定期备份场景：
+
+```bash
+./run.sh --token your_token_here --notebook-id 20240806202611-ecxtzjt --sync
+```
+
+**增量同步逻辑：**
+
+1. **创建** - 目标位置没有该笔记对应的 `.md` 文件时，自动创建
+2. **更新** - 满足以下任一条件时覆盖文件：
+   - 文件被手动删除后需要重新创建
+   - 笔记的 `updated` 时间戳比上次同步时间更新（笔记在思源中有修改）
+3. **删除** - 思源笔记中已删除的笔记，其对应的 `.md` 文件和空文件夹会被自动清理
+
+**同步记录：**
+
+每个笔记本的同步状态会保存在 `output/{笔记本名称}/.last_sync.json` 文件中，包含：
+- 上次同步时间
+- 每个笔记的 ID、标题、更新时间、文件路径
+
+**使用场景：**
+
+```bash
+# 首次导出（全量导出）
+./run.sh --token your_token --notebook-id xxx --sync
+
+# 一周后再次运行（只导出有更新的笔记）
+./run.sh --token your_token --notebook-id xxx --sync
+
+# 添加定时任务，每天自动同步
+0 2 * * * cd /path/to/siyuan-export && ./run.sh --token xxx --notebook-id xxx --sync
+```
 
 ### Markdown 后处理
 
@@ -206,7 +245,8 @@ siyuan-export/
     ├── __init__.py
     ├── client.py                # API 客户端
     ├── tree_builder.py          # 树形结构构建器
-    └── markdown_processor.py    # Markdown 后处理器（表格转列表等）
+    ├── markdown_processor.py    # Markdown 后处理器（表格转列表等）
+    └── sync_manager.py          # 增量同步管理器
 ```
 
 ## 原理说明
@@ -241,8 +281,8 @@ siyuan-export/
 - [x] 导出笔记内容为 Markdown 文件
 - [x] 支持表格转列表格式，提升 AI 可读性
 - [x] 支持批量导出笔记本下所有文档（按树形结构组织）
+- [x] 支持增量同步模式（只更新有变化的笔记，删除已不存在的笔记）
 - [ ] 支持图片和资源文件导出
-- [ ] 支持笔记内容同步更新
 
 ## 许可证
 
