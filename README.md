@@ -1,6 +1,6 @@
 # 思源笔记导出工具
 
-调用思源笔记 API，将笔记导出为树形结构的 Python 工具。
+调用思源笔记 API，将笔记导出为树形结构的 Python 工具。支持导出 JSON 结构、Markdown 内容，并提供表格转列表的 AI 友好格式。
 
 ## 功能特性
 
@@ -9,6 +9,8 @@
 - ✅ 根据文档路径自动构建树形结构
 - ✅ 支持多级嵌套笔记（笔记下再建笔记）
 - ✅ 导出为 JSON 格式
+- ✅ **导出笔记内容为 Markdown 文件**
+- ✅ **自动将 Markdown 表格转换为列表格式，提升 AI 可读性**
 
 ## 安装
 
@@ -55,26 +57,62 @@ python main.py --token your_token_here
 | `--token` | 是 | - | 思源笔记 API Token |
 | `--base-url` | 否 | http://127.0.0.1:6806 | 思源笔记 API 地址 |
 | `--output` | 否 | ./output | 输出目录 |
+| `--doc-id` | 否 | - | 指定要导出的笔记（文档）ID |
 
 ### 示例
 
 ```bash
-# 基本用法
+# 基本用法（导出树形结构 + 随机一篇笔记的 Markdown）
 ./run.sh --token your_token_here
 
 # 指定输出目录
 ./run.sh --token your_token_here --output ./my_export
 
-# 使用自定义 API 地址
+# 使用自定义 API 地址（远程思源实例）
 ./run.sh --token your_token_here --base-url http://192.168.1.100:6806
+
+# 导出指定笔记的 Markdown 内容
+./run.sh --token your_token_here --doc-id 20240806202611-ecxtzjt
 ```
 
-## 输出示例
+## 输出说明
 
-程序运行后会输出：
+程序运行后会输出以下内容：
 
 1. **控制台输出**：树形结构的可视化展示
-2. **JSON 文件**：位于 `output/siyuan_tree_YYYYMMDD_HHMMSS.json`
+2. **JSON 文件**：`output/siyuan_tree_YYYYMMDD_HHMMSS.json`
+3. **Markdown 文件**：`output/{标题}_{笔记ID}.md`
+
+### Markdown 后处理
+
+所有导出的 Markdown 文件会自动进行以下处理：
+
+- **提取 YAML Frontmatter 标题**：将 frontmatter 中的 `title` 提取为文档主标题 `# 标题：xxx`
+- **移除图片标签**：自动清除 `![...](...)` 格式的 Markdown 图片
+- **表格转列表**：将 Markdown 表格转换为层级化的列表格式，便于 AI 处理
+
+#### 表格转换示例
+
+原始表格：
+```markdown
+| 姓名 | 年龄 | 城市 |
+|------|------|------|
+| 张三 | 25   | 北京 |
+| 李四 | 30   | 上海 |
+```
+
+转换后：
+```markdown
+## 第1条记录
+- **姓名**: 张三
+- **年龄**: 25
+- **城市**: 北京
+
+## 第2条记录
+- **姓名**: 李四
+- **年龄**: 30
+- **城市**: 上海
+```
 
 ### 树形结构示例
 
@@ -129,21 +167,23 @@ python main.py --token your_token_here
 
 ```
 siyuan-export/
-├── main.py                 # 主程序入口
-├── run.sh                  # 便捷运行脚本（自动激活虚拟环境）
-├── install.sh              # 安装脚本（创建虚拟环境并安装依赖）
-├── requirements.txt        # 依赖项
-├── README.md              # 项目说明
-├── venv/                  # Python 虚拟环境（自动创建）
-└── siyuan_exporter/       # 核心模块
+├── main.py                      # 主程序入口
+├── run.sh                       # 便捷运行脚本（自动激活虚拟环境）
+├── install.sh                   # 安装脚本（创建虚拟环境并安装依赖）
+├── requirements.txt             # 依赖项
+├── README.md                    # 项目说明
+├── CLAUDE.md                    # Claude Code 开发指南
+├── venv/                        # Python 虚拟环境（自动创建）
+└── siyuan_exporter/             # 核心模块
     ├── __init__.py
-    ├── client.py          # API 客户端
-    └── tree_builder.py    # 树形结构构建器
+    ├── client.py                # API 客户端
+    ├── tree_builder.py          # 树形结构构建器
+    └── markdown_processor.py    # Markdown 后处理器（表格转列表等）
 ```
 
 ## 原理说明
 
-思源笔记的文档路径结构如下：
+### 思源笔记的文档路径结构
 
 ```
 /笔记本ID/父笔记ID/子笔记ID/当前笔记ID.sy
@@ -160,9 +200,19 @@ siyuan-export/
 
 本工具通过分析 `path` 字段，自动构建出完整的树形层级关系。
 
+### API 端点
+
+| 端点 | 用途 |
+|------|------|
+| `/api/notebook/lsNotebooks` | 获取笔记本列表 |
+| `/api/query/sql` | 查询文档数据 |
+| `/api/export/exportMdContent` | 导出笔记 Markdown 内容 |
+
 ## 下一步计划
 
-- [ ] 导出笔记内容为 Markdown 文件
+- [x] 导出笔记内容为 Markdown 文件
+- [x] 支持表格转列表格式，提升 AI 可读性
+- [ ] 支持批量导出笔记本下所有文档
 - [ ] 支持图片和资源文件导出
 - [ ] 支持笔记内容同步更新
 
