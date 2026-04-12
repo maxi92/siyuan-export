@@ -170,6 +170,111 @@ def export_single_doc_markdown(client: SiYuanClient, doc_id: str, output_dir: st
     print(f"   文件大小: {len(markdown_content)} 字符")
 
 
+def export_notebook_markdown(client: SiYuanClient, notebook_node: NotebookNode, output_dir: str):
+    """
+    导出整个笔记本的所有笔记为 Markdown 文件，按树形结构组织文件系统
+
+    文件结构：
+    - 笔记本名称作为根文件夹
+    - 父笔记的 markdown 文件与其子笔记文件夹同级
+    - 子笔记放在以父笔记名称命名的文件夹下
+
+    Args:
+        client: SiYuanClient 实例
+        notebook_node: 笔记本节点（包含树形结构）
+        output_dir: 输出目录
+    """
+    # 创建安全的笔记本文件夹名称
+    safe_notebook_name = "".join(c for c in notebook_node.name if c.isalnum() or c in (' ', '-', '_')).strip()
+    if not safe_notebook_name:
+        safe_notebook_name = notebook_node.id
+
+    notebook_dir = os.path.join(output_dir, safe_notebook_name)
+    os.makedirs(notebook_dir, exist_ok=True)
+
+    print(f"\n📁 笔记本导出目录: {notebook_dir}")
+
+    # 统计
+    total_docs = 0
+    success_count = 0
+    fail_count = 0
+
+    def get_safe_filename(title: str, doc_id: str) -> str:
+        """生成安全的文件名"""
+        safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
+        if not safe_title:
+            safe_title = doc_id
+        # 限制文件名长度，避免系统限制
+        if len(safe_title) > 100:
+            safe_title = safe_title[:100]
+        return f"{safe_title}_{doc_id}.md"
+
+    def export_doc_recursive(node: DocNode, current_dir: str, parent_title: str = ""):
+        """
+        递归导出文档及其子文档
+
+        Args:
+            node: 当前文档节点
+            current_dir: 当前所在的目录路径
+            parent_title: 父文档标题（用于显示层级关系）
+        """
+        nonlocal total_docs, success_count, fail_count
+
+        total_docs += 1
+        doc_title = node.title
+        doc_id = node.id
+
+        prefix = f"  {'  ' * node.level}"
+        print(f"{prefix}📄 正在导出: {doc_title}")
+
+        # 获取 Markdown 内容
+        markdown_content = client.get_doc_markdown(doc_id)
+
+        if markdown_content is None:
+            print(f"{prefix}   ❌ 获取失败: {doc_title}")
+            fail_count += 1
+            # 即使失败也继续处理子文档
+        else:
+            # 预处理 Markdown
+            markdown_content = preprocess_markdown(markdown_content)
+
+            # 保存到文件
+            filename = get_safe_filename(doc_title, doc_id)
+            output_file = os.path.join(current_dir, filename)
+
+            try:
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    f.write(markdown_content)
+                success_count += 1
+            except Exception as e:
+                print(f"{prefix}   ❌ 写入文件失败: {e}")
+                fail_count += 1
+
+        # 处理子文档
+        if node.children:
+            # 创建以当前文档命名的子文件夹存放子文档
+            safe_folder_name = "".join(c for c in doc_title if c.isalnum() or c in (' ', '-', '_')).strip()
+            if not safe_folder_name:
+                safe_folder_name = doc_id
+            # 限制文件夹名长度
+            if len(safe_folder_name) > 100:
+                safe_folder_name = safe_folder_name[:100]
+
+            child_dir = os.path.join(current_dir, safe_folder_name)
+            os.makedirs(child_dir, exist_ok=True)
+
+            print(f"{prefix}   📂 创建子文件夹: {safe_folder_name}/ ({len(node.children)} 个子文档)")
+
+            for child in node.children:
+                export_doc_recursive(child, child_dir, doc_title)
+
+    # 从笔记本的直接子文档开始导出
+    for doc_node in notebook_node.children:
+        export_doc_recursive(doc_node, notebook_dir)
+
+    print(f"\n📊 导出统计: 总计 {total_docs} 篇, 成功 {success_count} 篇, 失败 {fail_count} 篇")
+
+
 def print_summary(trees: List[NotebookNode]):
     """
     打印统计摘要
@@ -209,6 +314,7 @@ def main():
   python main.py --token your_token_here --output ./export
   python main.py --token your_token_here --base-url http://127.0.0.1:6806
   python main.py --token your_token_here --doc-id 20240806202611-ecxtzjt
+  python main.py --token your_token_here --notebook-id 20240806202611-ecxtzjt
         """
     )
     parser.add_argument('--token', required=True, help='思源笔记 API Token')
@@ -218,6 +324,8 @@ def main():
                        help='输出目录 (默认: ./output)')
     parser.add_argument('--doc-id',
                        help='要导出的笔记（文档）ID，导出该笔记的 Markdown 内容')
+    parser.add_argument('--notebook-id',
+                       help='要导出的笔记本 ID，导出该笔记本下所有笔记的 Markdown 内容（按树形结构组织）')
 
     args = parser.parse_args()
 
@@ -293,6 +401,28 @@ def main():
         print("📄 指定笔记 Markdown 导出")
         print("=" * 50)
         export_single_doc_markdown(client, args.doc_id, args.output)
+
+    # 8. 如果指定了笔记本 ID，导出该笔记本下所有笔记的 Markdown
+    if args.notebook_id:
+        print("\n" + "=" * 50)
+        print("📚 笔记本批量 Markdown 导出")
+        print("=" * 50)
+
+        # 查找指定的笔记本
+        target_notebook = None
+        for tree in trees:
+            if tree.id == args.notebook_id:
+                target_notebook = tree
+                break
+
+        if target_notebook is None:
+            print(f"❌ 未找到笔记本 ID: {args.notebook_id}")
+            print("可用的笔记本:")
+            for tree in trees:
+                print(f"   - {tree.name} (ID: {tree.id})")
+        else:
+            print(f"📒 正在导出笔记本: {target_notebook.name}")
+            export_notebook_markdown(client, target_notebook, args.output)
 
     print("\n🎉 完成！")
 

@@ -10,6 +10,7 @@
 - ✅ 支持多级嵌套笔记（笔记下再建笔记）
 - ✅ 导出为 JSON 格式
 - ✅ **导出笔记内容为 Markdown 文件**
+- ✅ **批量导出笔记本下所有笔记，按树形结构组织文件目录**
 - ✅ **自动将 Markdown 表格转换为列表格式，提升 AI 可读性**
 
 ## 安装
@@ -58,6 +59,7 @@ python main.py --token your_token_here
 | `--base-url` | 否 | http://127.0.0.1:6806 | 思源笔记 API 地址 |
 | `--output` | 否 | ./output | 输出目录 |
 | `--doc-id` | 否 | - | 指定要导出的笔记（文档）ID |
+| `--notebook-id` | 否 | - | 指定要导出的笔记本 ID（导出该笔记本下所有笔记） |
 
 ### 示例
 
@@ -73,6 +75,9 @@ python main.py --token your_token_here
 
 # 导出指定笔记的 Markdown 内容
 ./run.sh --token your_token_here --doc-id 20240806202611-ecxtzjt
+
+# 批量导出整个笔记本（按树形结构组织）
+./run.sh --token your_token_here --notebook-id 20240806202611-ecxtzjt
 ```
 
 ## 输出说明
@@ -82,6 +87,29 @@ python main.py --token your_token_here
 1. **控制台输出**：树形结构的可视化展示
 2. **JSON 文件**：`output/siyuan_tree_YYYYMMDD_HHMMSS.json`
 3. **Markdown 文件**：`output/{标题}_{笔记ID}.md`
+4. **笔记本批量导出**（使用 `--notebook-id`）：`output/{笔记本名称}/` 目录，内部按树形结构组织
+
+### 笔记本批量导出的文件结构
+
+使用 `--notebook-id` 参数导出时，文件按树形结构组织：
+
+```
+output/
+└── 笔记本名称/
+    ├── 父笔记.md              # 父笔记本身
+    ├── 父笔记/                # 子笔记文件夹（与父笔记同名）
+    │   ├── 子笔记1.md
+    │   └── 子笔记2.md
+    ├── 另一个笔记.md
+    └── 另一个笔记/
+        └── 子笔记3.md
+```
+
+组织规则：
+- 以笔记本名称创建根文件夹
+- 父笔记的 `.md` 文件与其子笔记文件夹同级
+- 子笔记放在以父笔记名称命名的文件夹下
+- 支持无限层级嵌套
 
 ### Markdown 后处理
 
@@ -212,7 +240,7 @@ siyuan-export/
 
 - [x] 导出笔记内容为 Markdown 文件
 - [x] 支持表格转列表格式，提升 AI 可读性
-- [ ] 支持批量导出笔记本下所有文档
+- [x] 支持批量导出笔记本下所有文档（按树形结构组织）
 - [ ] 支持图片和资源文件导出
 - [ ] 支持笔记内容同步更新
 

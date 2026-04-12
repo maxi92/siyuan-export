@@ -13,6 +13,7 @@ Key capabilities:
 - Exports tree structure to JSON
 - **Exports random document Markdown content via `/api/export/exportMdContent`**
 - **Exports specific document Markdown by `--doc-id`**
+- **Exports entire notebook as Markdown files by `--notebook-id` with tree-structured organization**
 - **Converts Markdown tables to list format for better AI readability**
 
 ## Common Development Commands
@@ -30,6 +31,9 @@ Key capabilities:
 
 # Export specific document by ID (with table-to-list conversion)
 ./run.sh --token your_api_token --doc-id 20240806202611-ecxtzjt
+
+# Export entire notebook with tree-structured file organization
+./run.sh --token your_api_token --notebook-id 20240806202611-ecxtzjt
 ```
 
 ### Installing dependencies
@@ -83,15 +87,18 @@ In SiYuan Note: Settings → About → API Token
   - `--base-url`: SiYuan API address (default: `http://127.0.0.1:6806`)
   - `--output`: Output directory (default: `./output`)
   - `--doc-id`: Specific document ID to export (optional)
+  - `--notebook-id`: Export entire notebook with tree-structured organization (optional)
 - Workflow:
   1. Fetch notebooks → fetch docs per notebook → build trees
   2. Print tree to console + export JSON
   3. Export random document Markdown (with table conversion)
   4. **If `--doc-id` provided: export specific document Markdown (with table conversion)**
+  5. **If `--notebook-id` provided: export all documents in the notebook with tree-structured file organization**
 - Output:
   - Tree structure: `output/siyuan_tree_YYYYMMDD_HHMMSS.json`
   - Random document Markdown: `output/{title}_{doc_id}.md`
   - **Specific document Markdown (when `--doc-id` used): `output/{title}_{doc_id}.md`**
+  - **Notebook export (when `--notebook-id` used): `output/{notebook_name}/` with tree-structured subdirectories**
 
 ### SiYuan API Structure
 
@@ -159,7 +166,29 @@ Console output + JSON export
 Random selection → /api/export/exportMdContent → preprocess_markdown() → Markdown file export
     ↓
 (Alternative) --doc-id provided → /api/export/exportMdContent → preprocess_markdown() → Markdown file export
+    ↓
+(Alternative) --notebook-id provided → recursive export → tree-structured directory with all Markdown files
 ```
+
+**Notebook Export File Structure:**
+
+When using `--notebook-id`, files are organized following the notebook's tree structure:
+
+```
+output/
+└── {notebook_name}/
+    ├── {parent_doc}_{id}.md       # Parent document markdown file
+    ├── {parent_doc}/              # Subfolder for children (same name as parent)
+    │   ├── {child_doc}_{id}.md
+    │   └── {child_doc}/
+    │       └── {grandchild}_{id}.md
+    └── {another_doc}_{id}.md
+```
+
+Key points:
+- Parent document's `.md` file is at the same level as its children folder
+- Children folders are named after the parent document title
+- Recursive structure supports unlimited nesting depth
 
 **Markdown Post-Processing Pipeline:**
 1. Replace literal `\n` strings with actual newlines
@@ -174,6 +203,6 @@ Random selection → /api/export/exportMdContent → preprocess_markdown() → M
 Based on README.md roadmap:
 - ~~Export document content as Markdown files~~ ✅ Implemented (random/single document export with table-to-list conversion)
 - ~~Post-process Markdown for AI readability~~ ✅ Implemented (table-to-list conversion, image removal, YAML frontmatter extraction)
-- Export all documents as Markdown files (full export)
+- ~~Export all documents as Markdown files~~ ✅ Implemented (`--notebook-id` for batch export with tree-structured organization)
 - Support image/resource file export
 - Support sync/update functionality
