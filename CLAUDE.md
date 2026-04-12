@@ -12,6 +12,8 @@ Key capabilities:
 - Builds hierarchical tree structure from flat document data
 - Exports tree structure to JSON
 - **Exports random document Markdown content via `/api/export/exportMdContent`**
+- **Exports specific document Markdown by `--doc-id`**
+- **Converts Markdown tables to list format for better AI readability**
 
 ## Common Development Commands
 
@@ -25,6 +27,9 @@ Key capabilities:
 
 # With remote SiYuan instance
 ./run.sh --token your_api_token --base-url http://192.168.1.100:6806
+
+# Export specific document by ID (with table-to-list conversion)
+./run.sh --token your_api_token --doc-id 20240806202611-ecxtzjt
 ```
 
 ### Installing dependencies
@@ -62,12 +67,31 @@ In SiYuan Note: Settings → About → API Token
   3. Attaches children to parents based on ID matching
 - Path format: `/notebookID/parentID/docID.sy` (parentID may repeat for nested docs)
 
+**MarkdownProcessor** (`siyuan_exporter/markdown_processor.py`)
+- Post-processes exported Markdown for better AI readability
+- `convert_markdown_tables(md_text)`: Converts Markdown tables to hierarchical list format
+  - Extracts YAML Frontmatter title as document header
+  - Removes Markdown image tags
+  - Transforms each table row into a numbered record section
+  - Converts columns to `**key**: value` list items
+- `preprocess_markdown(raw_markdown)`: Preprocesses raw content (converts literal `\n` to newlines)
+
 **Main** (`main.py`)
 - CLI entry point with argparse
-- Workflow: fetch notebooks → fetch docs per notebook → build trees → print to console → export JSON → **export random document Markdown**
+- Arguments:
+  - `--token` (required): API Token
+  - `--base-url`: SiYuan API address (default: `http://127.0.0.1:6806`)
+  - `--output`: Output directory (default: `./output`)
+  - `--doc-id`: Specific document ID to export (optional)
+- Workflow:
+  1. Fetch notebooks → fetch docs per notebook → build trees
+  2. Print tree to console + export JSON
+  3. Export random document Markdown (with table conversion)
+  4. **If `--doc-id` provided: export specific document Markdown (with table conversion)**
 - Output:
   - Tree structure: `output/siyuan_tree_YYYYMMDD_HHMMSS.json`
-  - **Random document Markdown: `output/{title}_{doc_id}.md`**
+  - Random document Markdown: `output/{title}_{doc_id}.md`
+  - **Specific document Markdown (when `--doc-id` used): `output/{title}_{doc_id}.md`**
 
 ### SiYuan API Structure
 
@@ -115,9 +139,11 @@ order by updated asc
 
 **Implementation details:**
 - Random document selection using `random.choice()` from collected documents
+- Specific document export via `--doc-id` parameter
 - Safe filename generation (alphanumeric, spaces, hyphens, underscores only)
 - File naming format: `{safe_title}_{doc_id}.md`
 - Output directory: same as JSON export (default: `./output`)
+- **All exported Markdown goes through `preprocess_markdown()` for table-to-list conversion**
 
 ### Data Flow
 
@@ -130,13 +156,24 @@ TreeBuilder: path analysis → hierarchical tree
     ↓
 Console output + JSON export
     ↓
-Random selection → /api/export/exportMdContent → Markdown file export
+Random selection → /api/export/exportMdContent → preprocess_markdown() → Markdown file export
+    ↓
+(Alternative) --doc-id provided → /api/export/exportMdContent → preprocess_markdown() → Markdown file export
 ```
+
+**Markdown Post-Processing Pipeline:**
+1. Replace literal `\n` strings with actual newlines
+2. Extract YAML Frontmatter title as `# 标题：xxx`
+3. Remove Markdown image tags `![...](...)`
+4. Convert tables to hierarchical lists:
+   - Each row becomes `## 第N条记录`
+   - Each column becomes `- **header**: value`
 
 ### Next Planned Features
 
 Based on README.md roadmap:
-- ~~Export document content as Markdown files~~ ✅ Implemented (random document export for verification)
+- ~~Export document content as Markdown files~~ ✅ Implemented (random/single document export with table-to-list conversion)
+- ~~Post-process Markdown for AI readability~~ ✅ Implemented (table-to-list conversion, image removal, YAML frontmatter extraction)
 - Export all documents as Markdown files (full export)
 - Support image/resource file export
 - Support sync/update functionality
