@@ -14,6 +14,7 @@
 
 import argparse
 import os
+import shutil
 from datetime import datetime
 from typing import List
 
@@ -233,7 +234,21 @@ def export_notebook_markdown(client: SiYuanClient, notebook_node: NotebookNode, 
     print(f"\n📊 导出统计: 总计 {total_docs} 篇, 成功 {success_count} 篇, 失败 {fail_count} 篇")
 
 
-def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: NotebookNode, output_dir: str):
+def _remove_empty_dirs(dir_path: str):
+    """递归删除空文件夹（从下往上），包括传入的根目录本身"""
+    if not os.path.exists(dir_path):
+        return
+    for root, dirs, files in os.walk(dir_path, topdown=False):
+        for dir_name in dirs:
+            full_path = os.path.join(root, dir_name)
+            if os.path.isdir(full_path) and not os.listdir(full_path):
+                os.rmdir(full_path)
+    # 最后检查根目录本身是否为空
+    if os.path.isdir(dir_path) and not os.listdir(dir_path):
+        os.rmdir(dir_path)
+
+
+def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: NotebookNode, output_dir: str, incremental_dir: str = None):
     """
     增量导出整个笔记本的所有笔记为 Markdown 文件
 
@@ -241,11 +256,13 @@ def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: No
     1. 如果目标位置没有该笔记对应的md文件，则创建
     2. 如果文件已存在，则比较 updated 时间，仅在上次导出后有更新时才覆盖
     3. 如果笔记已不存在但文件/文件夹还在，则删除
+    4. 所有新增/更新的文件同时输出到 incremental_dir 中（保留层级结构）
 
     Args:
         client: SiYuanClient 实例
         notebook_node: 笔记本节点（包含树形结构）
-        output_dir: 输出目录
+        output_dir: 主输出目录（思源笔记）
+        incremental_dir: 增量输出目录（思源笔记增量导出）
     """
     sync_manager = SyncManager()  # 使用默认配置目录 .siyuan-export/sync
 
@@ -256,6 +273,14 @@ def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: No
 
     notebook_dir = os.path.join(output_dir, safe_notebook_name)
     os.makedirs(notebook_dir, exist_ok=True)
+
+    # 增量导出目录：每次先清空，再按本次导出情况重建
+    incremental_notebook_dir = None
+    if incremental_dir:
+        incremental_notebook_dir = os.path.join(incremental_dir, safe_notebook_name)
+        if os.path.exists(incremental_notebook_dir):
+            shutil.rmtree(incremental_notebook_dir)
+        os.makedirs(incremental_notebook_dir, exist_ok=True)
 
     print(f"\n📁 笔记本导出目录: {notebook_dir}")
 
@@ -275,7 +300,7 @@ def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: No
     # 统计
     stats = {"created": 0, "updated": 0, "unchanged": 0, "failed": 0, "deleted_files": 0, "deleted_folders": 0}
 
-    def export_doc_recursive(node: DocNode, current_dir: str, parent_title: str = ""):
+    def export_doc_recursive(node: DocNode, current_dir: str, parent_title: str = "", incremental_current_dir: str = None):
         """
         递归导出文档及其子文档
         """
@@ -300,6 +325,7 @@ def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: No
             action = "⏭️  跳过"
             stats["unchanged"] += 1
 
+        markdown_content = None
         if needs_update:
             print(f"{prefix}{action}: {doc_title}")
 
@@ -313,13 +339,24 @@ def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: No
                 # 预处理 Markdown
                 markdown_content = preprocess_markdown(markdown_content)
 
-                # 保存到文件
+                # 保存到主输出目录
                 try:
                     with open(file_path, 'w', encoding='utf-8') as f:
                         f.write(markdown_content)
                 except Exception as e:
                     print(f"{prefix}   ❌ 写入文件失败: {e}")
                     stats["failed"] += 1
+                    markdown_content = None  # 标记为失败，不再写入增量目录
+
+                # 同步保存到增量导出目录
+                if incremental_current_dir and markdown_content is not None:
+                    try:
+                        incremental_file_path = os.path.join(incremental_current_dir, filename)
+                        with open(incremental_file_path, 'w', encoding='utf-8') as f:
+                            f.write(markdown_content)
+                    except Exception as e:
+                        print(f"{prefix}   ❌ 增量目录写入失败: {e}")
+
         # 处理子文档
         if node.children:
             safe_folder_name = "".join(c for c in doc_title if c.isalnum() or c in (' ', '-', '_')).strip()
@@ -331,15 +368,20 @@ def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: No
             child_dir = os.path.join(current_dir, safe_folder_name)
             os.makedirs(child_dir, exist_ok=True)
 
+            incremental_child_dir = None
+            if incremental_current_dir:
+                incremental_child_dir = os.path.join(incremental_current_dir, safe_folder_name)
+                os.makedirs(incremental_child_dir, exist_ok=True)
+
             if needs_update:
                 print(f"{prefix}   📂 子文件夹: {safe_folder_name}/ ({len(node.children)} 个子文档)")
 
             for child in node.children:
-                export_doc_recursive(child, child_dir, doc_title)
+                export_doc_recursive(child, child_dir, doc_title, incremental_child_dir)
 
     # 从笔记本的直接子文档开始导出
     for doc_node in notebook_node.children:
-        export_doc_recursive(doc_node, notebook_dir)
+        export_doc_recursive(doc_node, notebook_dir, incremental_current_dir=incremental_notebook_dir)
 
     # 清理孤儿文件和文件夹
     print(f"\n🧹 清理已删除的笔记文件...")
@@ -355,6 +397,10 @@ def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: No
     # 保存同步记录（仅记录当前时间）
     sync_manager.save_record(notebook_node)
     print(f"   💾 同步记录已保存")
+
+    # 清理增量导出目录中的空文件夹
+    if incremental_notebook_dir:
+        _remove_empty_dirs(incremental_notebook_dir)
 
     print(f"\n📊 导出统计: 新建 {stats['created']} 篇, 更新 {stats['updated']} 篇, 跳过 {stats['unchanged']} 篇, 失败 {stats['failed']} 篇")
     if stats['deleted_files'] > 0 or stats['deleted_folders'] > 0:
@@ -429,8 +475,10 @@ def main():
         return
 
     # 创建输出目录（在指定目录下创建"思源笔记"子目录）
-    args.output = os.path.join(args.output, "思源笔记")
-    os.makedirs(args.output, exist_ok=True)
+    base_output = args.output
+    siyuan_output = os.path.join(base_output, "思源笔记")
+    incremental_output = os.path.join(base_output, "思源笔记增量导出") if args.sync else None
+    os.makedirs(siyuan_output, exist_ok=True)
 
     # 初始化客户端
     print("🔌 正在连接思源笔记...")
@@ -489,7 +537,7 @@ def main():
         print("\n" + "=" * 50)
         print("📄 指定笔记 Markdown 导出")
         print("=" * 50)
-        export_single_doc_markdown(client, args.doc_id, args.output)
+        export_single_doc_markdown(client, args.doc_id, siyuan_output)
 
     # 6. 如果指定了笔记本 ID，导出该笔记本下所有笔记的 Markdown
     if args.notebook_id:
@@ -515,9 +563,9 @@ def main():
         else:
             print(f"📒 正在导出笔记本: {target_notebook.name}")
             if args.sync:
-                export_notebook_markdown_incremental(client, target_notebook, args.output)
+                export_notebook_markdown_incremental(client, target_notebook, siyuan_output, incremental_output)
             else:
-                export_notebook_markdown(client, target_notebook, args.output)
+                export_notebook_markdown(client, target_notebook, siyuan_output)
 
     # 7. 如果指定了导出所有笔记本
     if args.all_notebooks:
@@ -534,9 +582,9 @@ def main():
         for i, tree in enumerate(trees, 1):
             print(f"\n[{i}/{total_notebooks}] 📒 正在导出笔记本: {tree.name}")
             if args.sync:
-                export_notebook_markdown_incremental(client, tree, args.output)
+                export_notebook_markdown_incremental(client, tree, siyuan_output, incremental_output)
             else:
-                export_notebook_markdown(client, tree, args.output)
+                export_notebook_markdown(client, tree, siyuan_output)
 
     print("\n🎉 完成！")
 

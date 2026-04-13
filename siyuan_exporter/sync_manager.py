@@ -16,6 +16,23 @@ from typing import Optional, Set, Tuple
 from siyuan_exporter.tree_builder import DocNode, NotebookNode
 
 
+def _parse_time(time_str: str) -> Optional[datetime]:
+    """统一解析时间字符串，支持 ISO 8601 和 SiYuan 的 YYYYMMDDHHMMSS 格式"""
+    if not time_str:
+        return None
+    # ISO 8601 格式 (如 2025-04-13T12:00:00.123456)
+    try:
+        return datetime.fromisoformat(time_str)
+    except ValueError:
+        pass
+    # SiYuan 格式: YYYYMMDDHHMMSS 或带毫秒 YYYYMMDDHHMMSSfff
+    try:
+        return datetime.strptime(time_str[:14], "%Y%m%d%H%M%S")
+    except (ValueError, IndexError):
+        pass
+    return None
+
+
 @dataclass
 class NotebookSyncRecord:
     """笔记本同步记录 - 仅记录最后一次同步时间"""
@@ -102,7 +119,14 @@ class SyncManager:
         if last_sync_time is None:
             return True
 
-        # 比较思源的 updated 时间戳和上次同步时间
+        # 统一解析两种时间格式后再比较
+        doc_updated = _parse_time(doc.updated)
+        sync_time = _parse_time(last_sync_time)
+
+        if doc_updated is not None and sync_time is not None:
+            return doc_updated > sync_time
+
+        # 回退到字符串比较（通常不正确，仅作为兜底）
         return doc.updated > last_sync_time
 
     def get_existing_files(self, notebook_dir: str) -> Set[str]:
