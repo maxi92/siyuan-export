@@ -9,50 +9,24 @@
 import json
 import os
 import shutil
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Optional, Set, Tuple
 
 from siyuan_exporter.tree_builder import DocNode, NotebookNode
 
 
 @dataclass
-class DocSyncRecord:
-    """单条笔记同步记录"""
-    doc_id: str
-    title: str
-    updated: str  # 思源笔记的 updated 时间戳
-    last_sync: str  # 上次同步时间
-    file_path: str  # 相对路径
-
-
-@dataclass
 class NotebookSyncRecord:
-    """笔记本同步记录"""
-    notebook_id: str
-    notebook_name: str
+    """笔记本同步记录 - 仅记录最后一次同步时间"""
     last_sync: str  # 整体上次同步时间
-    docs: Dict[str, DocSyncRecord] = field(default_factory=dict)  # doc_id -> record
 
     def to_dict(self) -> dict:
-        return {
-            "notebook_id": self.notebook_id,
-            "notebook_name": self.notebook_name,
-            "last_sync": self.last_sync,
-            "docs": {k: asdict(v) for k, v in self.docs.items()}
-        }
+        return {"last_sync": self.last_sync}
 
     @classmethod
     def from_dict(cls, data: dict) -> "NotebookSyncRecord":
-        record = cls(
-            notebook_id=data["notebook_id"],
-            notebook_name=data["notebook_name"],
-            last_sync=data["last_sync"],
-            docs={}
-        )
-        for doc_id, doc_data in data.get("docs", {}).items():
-            record.docs[doc_id] = DocSyncRecord(**doc_data)
-        return record
+        return cls(last_sync=data["last_sync"])
 
 
 class SyncManager:
@@ -71,7 +45,7 @@ class SyncManager:
             config_dir = os.path.join(project_root, ".siyuan-export", "sync")
 
         self.config_dir = config_dir
-        self._records: Dict[str, NotebookSyncRecord] = {}  # notebook_id -> record
+        self._records = {}
         self._loaded = False
 
         # 确保配置目录存在
@@ -83,7 +57,7 @@ class SyncManager:
         return os.path.join(self.config_dir, f"{notebook_node.id}.json")
 
     def load_record(self, notebook_node: NotebookNode) -> Optional[NotebookSyncRecord]:
-        """加载指定笔记本的同步记录"""
+        """加载指定笔记本的同步记录（仅包含 last_sync）"""
         record_path = self._get_sync_record_path(notebook_node)
 
         if not os.path.exists(record_path):
@@ -97,9 +71,10 @@ class SyncManager:
             print(f"   ⚠️ 加载同步记录失败: {e}")
             return None
 
-    def save_record(self, notebook_node: NotebookNode, record: NotebookSyncRecord):
-        """保存指定笔记本的同步记录"""
+    def save_record(self, notebook_node: NotebookNode):
+        """保存指定笔记本的同步记录（仅记录当前时间）"""
         record_path = self._get_sync_record_path(notebook_node)
+        record = NotebookSyncRecord(last_sync=datetime.now().isoformat())
 
         try:
             with open(record_path, 'w', encoding='utf-8') as f:
@@ -107,13 +82,13 @@ class SyncManager:
         except Exception as e:
             print(f"   ⚠️ 保存同步记录失败: {e}")
 
-    def should_update(self, doc: DocNode, record: Optional[DocSyncRecord], file_path: str) -> bool:
+    def should_update(self, doc: DocNode, last_sync_time: Optional[str], file_path: str) -> bool:
         """
         判断笔记是否需要更新
 
         Args:
             doc: 当前笔记节点
-            record: 上次同步记录
+            last_sync_time: 上次同步时间（ISO格式字符串）
             file_path: 文件完整路径
 
         Returns:
@@ -123,12 +98,12 @@ class SyncManager:
         if not os.path.exists(file_path):
             return True
 
-        # 如果没有同步记录，或者 updated 时间戳更新了，需要更新
-        if record is None:
+        # 如果没有同步记录，需要更新
+        if last_sync_time is None:
             return True
 
-        # 比较 updated 时间戳
-        return doc.updated > record.updated
+        # 比较思源的 updated 时间戳和上次同步时间
+        return doc.updated > last_sync_time
 
     def get_existing_files(self, notebook_dir: str) -> Set[str]:
         """

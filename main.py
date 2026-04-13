@@ -20,7 +20,7 @@ from typing import List
 from siyuan_exporter.client import SiYuanClient
 from siyuan_exporter.tree_builder import TreeBuilder, NotebookNode, DocNode
 from siyuan_exporter.markdown_processor import preprocess_markdown
-from siyuan_exporter.sync_manager import SyncManager, NotebookSyncRecord, DocSyncRecord
+from siyuan_exporter.sync_manager import SyncManager
 
 
 def export_single_doc_markdown(client: SiYuanClient, doc_id: str, output_dir: str):
@@ -266,19 +266,11 @@ def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: No
 
     # 加载上次同步记录
     sync_record = sync_manager.load_record(notebook_node)
-    if sync_record:
-        print(f"   📋 上次同步时间: {sync_record.last_sync[:19]}")
+    last_sync_time = sync_record.last_sync if sync_record else None
+    if last_sync_time:
+        print(f"   📋 上次同步时间: {last_sync_time[:19]}")
     else:
         print(f"   📋 首次同步，将创建所有文件")
-
-    # 创建新的同步记录
-    from datetime import datetime
-    new_sync_record = NotebookSyncRecord(
-        notebook_id=notebook_node.id,
-        notebook_name=notebook_node.name,
-        last_sync=datetime.now().isoformat(),
-        docs={}
-    )
 
     # 统计
     stats = {"created": 0, "updated": 0, "unchanged": 0, "failed": 0, "deleted_files": 0, "deleted_folders": 0}
@@ -294,13 +286,11 @@ def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: No
         need_suffix = doc_id in duplicate_ids
         filename = _get_safe_filename(doc_title, doc_id, need_suffix)
         file_path = os.path.join(current_dir, filename)
-        rel_path = os.path.relpath(file_path, notebook_dir)
 
         # 判断是否需要更新
-        doc_record = sync_record.docs.get(doc_id) if sync_record else None
-        needs_update = sync_manager.should_update(node, doc_record, file_path)
+        needs_update = sync_manager.should_update(node, last_sync_time, file_path)
 
-        if doc_record is None:
+        if not os.path.exists(file_path):
             action = "🆕 创建"
             stats["created"] += 1
         elif needs_update:
@@ -330,19 +320,6 @@ def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: No
                 except Exception as e:
                     print(f"{prefix}   ❌ 写入文件失败: {e}")
                     stats["failed"] += 1
-        else:
-            # 跳过未变更的文件
-            pass
-
-        # 记录当前同步状态
-        new_sync_record.docs[doc_id] = DocSyncRecord(
-            doc_id=doc_id,
-            title=doc_title,
-            updated=node.updated,
-            last_sync=datetime.now().isoformat(),
-            file_path=rel_path
-        )
-
         # 处理子文档
         if node.children:
             safe_folder_name = "".join(c for c in doc_title if c.isalnum() or c in (' ', '-', '_')).strip()
@@ -375,8 +352,8 @@ def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: No
     else:
         print(f"   🗑️  删除 {deleted_files} 个文件, {deleted_folders} 个文件夹")
 
-    # 保存同步记录
-    sync_manager.save_record(notebook_node, new_sync_record)
+    # 保存同步记录（仅记录当前时间）
+    sync_manager.save_record(notebook_node)
     print(f"   💾 同步记录已保存")
 
     print(f"\n📊 导出统计: 新建 {stats['created']} 篇, 更新 {stats['updated']} 篇, 跳过 {stats['unchanged']} 篇, 失败 {stats['failed']} 篇")

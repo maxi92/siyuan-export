@@ -91,16 +91,16 @@ In SiYuan Note: Settings → About → API Token
 
 **SyncManager** (`siyuan_exporter/sync_manager.py`)
 - Manages incremental synchronization state for notebook exports
-- Key dataclasses: `NotebookSyncRecord`, `DocSyncRecord`
+- Key dataclass: `NotebookSyncRecord` (only stores `last_sync` timestamp)
 - Core methods:
-  - `load_record()`: Loads previous sync state from `.last_sync.json`
-  - `should_update(doc, record, file_path)`: Checks if file needs updating by verifying:
+  - `load_record()`: Loads previous sync time from `{notebook_id}.json`
+  - `should_update(doc, last_sync_time, file_path)`: Checks if file needs updating by verifying:
     1. File does not exist on disk → needs creation
-    2. `DocNode.updated` timestamp is newer than last sync → needs update
+    2. `DocNode.updated` timestamp is newer than `last_sync_time` → needs update
     3. Otherwise → skip (file unchanged)
-  - `remove_orphaned_files()`: Deletes Markdown files and folders no longer present in SiYuan
-  - `save_record()`: Persists current sync state to JSON
-- Sync record stored per notebook at `.siyuan-export/sync/{notebook_id}.json` (separate from exported content)
+  - `remove_orphaned_files()`: Deletes Markdown files and folders no longer present in SiYuan (by comparing SQL results with actual files)
+  - `save_record()`: Persists current sync time to JSON
+- Sync record stored per notebook at `.siyuan-export/sync/{notebook_id}.json` (only contains `{"last_sync": "2025-04-13T10:30:00..."}`)
 
 **Main** (`main.py`)
 - CLI entry point with argparse
