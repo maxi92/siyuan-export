@@ -148,13 +148,20 @@ class SyncManager:
 
         return existing_files
 
-    def get_expected_files(self, notebook_node: NotebookNode) -> Set[str]:
+    def get_expected_files(self, notebook_node: NotebookNode, duplicate_ids: Set[str] = None) -> Set[str]:
         """
         根据当前笔记本结构，计算应该存在的文件路径集合
+
+        Args:
+            notebook_node: 笔记本节点
+            duplicate_ids: 需要添加 ID 后缀的文档 ID 集合
 
         Returns:
             相对于 notebook_dir 的文件路径集合
         """
+        if duplicate_ids is None:
+            duplicate_ids = set()
+
         expected_files = set()
 
         def traverse(node: DocNode, current_path: str):
@@ -166,7 +173,11 @@ class SyncManager:
             if len(safe_title) > 100:
                 safe_title = safe_title[:100]
 
-            filename = f"{safe_title}_{node.id}.md"
+            # 根据是否需要 ID 后缀生成文件名
+            if node.id in duplicate_ids:
+                filename = f"{safe_title}_{node.id}.md"
+            else:
+                filename = f"{safe_title}.md"
             file_path = os.path.join(current_path, filename)
             expected_files.add(file_path)
 
@@ -217,7 +228,7 @@ class SyncManager:
 
         return expected_folders
 
-    def remove_orphaned_files(self, notebook_node: NotebookNode, notebook_dir: str) -> Tuple[int, int]:
+    def remove_orphaned_files(self, notebook_node: NotebookNode, notebook_dir: str, duplicate_ids: Set[str] = None) -> Tuple[int, int]:
         """
         删除笔记已不存在但文件仍存在的孤儿文件和文件夹
 
@@ -231,7 +242,7 @@ class SyncManager:
         if not os.path.exists(notebook_dir):
             return 0, 0
 
-        expected_files = self.get_expected_files(notebook_node)
+        expected_files = self.get_expected_files(notebook_node, duplicate_ids)
         expected_folders = self.get_expected_folders(notebook_node)
         existing_files = self.get_existing_files(notebook_dir)
 

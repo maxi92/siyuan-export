@@ -59,12 +59,77 @@ def export_single_doc_markdown(client: SiYuanClient, doc_id: str, output_dir: st
     if not safe_title:
         safe_title = doc_id
 
-    output_file = os.path.join(output_dir, f"{safe_title}_{doc_id}.md")
+    output_file = os.path.join(output_dir, f"{safe_title}.md")
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write(markdown_content)
 
     print(f"✅ Markdown 已导出到: {output_file}")
     print(f"   文件大小: {len(markdown_content)} 字符")
+
+
+def _pre_scan_duplicate_titles(notebook_node: NotebookNode) -> set:
+    """
+    预扫描笔记本，找出在同一目录下有重复标题的文档
+
+    Returns:
+        需要添加 ID 后缀的文档 ID 集合
+    """
+    duplicate_ids = set()
+
+    def scan_node(node: DocNode, parent_path: str = ""):
+        """递归扫描，记录每个路径下的标题"""
+        # 使用 (父路径, 安全标题) 作为键，检测重复
+        safe_title = "".join(c for c in node.title if c.isalnum() or c in (' ', '-', '_')).strip()
+        if not safe_title:
+            safe_title = node.id
+        if len(safe_title) > 100:
+            safe_title = safe_title[:100]
+
+        key = (parent_path, safe_title.lower())  # 使用小写比较，避免大小写问题
+
+        if hasattr(scan_node, 'title_counts'):
+            if key in scan_node.title_counts:
+                # 发现重复，将之前和当前的都标记为需要 ID 后缀
+                scan_node.title_counts[key].append(node.id)
+                for dup_id in scan_node.title_counts[key]:
+                    duplicate_ids.add(dup_id)
+            else:
+                scan_node.title_counts[key] = [node.id]
+        else:
+            scan_node.title_counts = {key: [node.id]}
+
+        # 处理子文档
+        if node.children:
+            child_path = os.path.join(parent_path, safe_title)
+            for child in node.children:
+                scan_node(child, child_path)
+
+    for doc_node in notebook_node.children:
+        scan_node(doc_node, "")
+
+    return duplicate_ids
+
+
+def _get_safe_filename(title: str, doc_id: str, need_id_suffix: bool = False) -> str:
+    """
+    生成安全的文件名
+
+    Args:
+        title: 笔记标题
+        doc_id: 笔记 ID
+        need_id_suffix: 是否需要添加 ID 后缀（同一目录下有同名笔记时）
+    """
+    safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
+    if not safe_title:
+        safe_title = doc_id
+    # 限制文件名长度，避免系统限制
+    if len(safe_title) > 100:
+        safe_title = safe_title[:100]
+
+    if need_id_suffix:
+        return f"{safe_title}_{doc_id}.md"
+    else:
+        return f"{safe_title}.md"
 
 
 def export_notebook_markdown(client: SiYuanClient, notebook_node: NotebookNode, output_dir: str):
@@ -91,20 +156,15 @@ def export_notebook_markdown(client: SiYuanClient, notebook_node: NotebookNode, 
 
     print(f"\n📁 笔记本导出目录: {notebook_dir}")
 
+    # 预扫描，检测重复标题
+    duplicate_ids = _pre_scan_duplicate_titles(notebook_node)
+    if duplicate_ids:
+        print(f"   ℹ️ 发现 {len(duplicate_ids)} 篇笔记标题重复，将添加 ID 后缀")
+
     # 统计
     total_docs = 0
     success_count = 0
     fail_count = 0
-
-    def get_safe_filename(title: str, doc_id: str) -> str:
-        """生成安全的文件名"""
-        safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
-        if not safe_title:
-            safe_title = doc_id
-        # 限制文件名长度，避免系统限制
-        if len(safe_title) > 100:
-            safe_title = safe_title[:100]
-        return f"{safe_title}_{doc_id}.md"
 
     def export_doc_recursive(node: DocNode, current_dir: str, parent_title: str = ""):
         """
@@ -136,7 +196,8 @@ def export_notebook_markdown(client: SiYuanClient, notebook_node: NotebookNode, 
             markdown_content = preprocess_markdown(markdown_content)
 
             # 保存到文件
-            filename = get_safe_filename(doc_title, doc_id)
+            need_suffix = doc_id in duplicate_ids
+            filename = _get_safe_filename(doc_title, doc_id, need_suffix)
             output_file = os.path.join(current_dir, filename)
 
             try:
@@ -198,6 +259,11 @@ def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: No
 
     print(f"\n📁 笔记本导出目录: {notebook_dir}")
 
+    # 预扫描，检测重复标题
+    duplicate_ids = _pre_scan_duplicate_titles(notebook_node)
+    if duplicate_ids:
+        print(f"   ℹ️ 发现 {len(duplicate_ids)} 篇笔记标题重复，将添加 ID 后缀")
+
     # 加载上次同步记录
     sync_record = sync_manager.load_record(notebook_node)
     if sync_record:
@@ -217,15 +283,6 @@ def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: No
     # 统计
     stats = {"created": 0, "updated": 0, "unchanged": 0, "failed": 0, "deleted_files": 0, "deleted_folders": 0}
 
-    def get_safe_filename(title: str, doc_id: str) -> str:
-        """生成安全的文件名"""
-        safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
-        if not safe_title:
-            safe_title = doc_id
-        if len(safe_title) > 100:
-            safe_title = safe_title[:100]
-        return f"{safe_title}_{doc_id}.md"
-
     def export_doc_recursive(node: DocNode, current_dir: str, parent_title: str = ""):
         """
         递归导出文档及其子文档
@@ -234,7 +291,8 @@ def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: No
         doc_id = node.id
 
         prefix = "  " * node.level
-        filename = get_safe_filename(doc_title, doc_id)
+        need_suffix = doc_id in duplicate_ids
+        filename = _get_safe_filename(doc_title, doc_id, need_suffix)
         file_path = os.path.join(current_dir, filename)
         rel_path = os.path.relpath(file_path, notebook_dir)
 
@@ -308,7 +366,7 @@ def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: No
 
     # 清理孤儿文件和文件夹
     print(f"\n🧹 清理已删除的笔记文件...")
-    deleted_files, deleted_folders = sync_manager.remove_orphaned_files(notebook_node, notebook_dir)
+    deleted_files, deleted_folders = sync_manager.remove_orphaned_files(notebook_node, notebook_dir, duplicate_ids)
     stats["deleted_files"] = deleted_files
     stats["deleted_folders"] = deleted_folders
 

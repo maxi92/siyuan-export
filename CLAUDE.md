@@ -172,7 +172,7 @@ order by updated asc
 **Implementation details:**
 - Specific document export via `--doc-id` parameter
 - Safe filename generation (alphanumeric, spaces, hyphens, underscores only)
-- File naming format: `{safe_title}_{doc_id}.md`
+- File naming format: `{safe_title}.md` (or `{safe_title}_{doc_id}.md` if duplicate titles exist in same directory)
 - Output directory: `{output_dir}/思源笔记/` subdirectory under the specified output directory
 - **All exported Markdown goes through `preprocess_markdown()` for table-to-list conversion**
 
