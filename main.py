@@ -471,6 +471,8 @@ def main():
   python main.py --token your_token_here --doc-id 20240806202611-ecxtzjt
   python main.py --token your_token_here --notebook-id 20240806202611-ecxtzjt
   python main.py --token your_token_here --notebook-id 20240806202611-ecxtzjt --sync
+  python main.py --token your_token_here --all-notebooks
+  python main.py --token your_token_here --all-notebooks --sync
         """
     )
     parser.add_argument('--token', required=True, help='思源笔记 API Token')
@@ -482,10 +484,18 @@ def main():
                        help='要导出的笔记（文档）ID，导出该笔记的 Markdown 内容')
     parser.add_argument('--notebook-id',
                        help='要导出的笔记本 ID，导出该笔记本下所有笔记的 Markdown 内容（按树形结构组织）')
+    parser.add_argument('--all-notebooks', action='store_true',
+                       help='导出所有笔记本下的所有笔记（与 --notebook-id 互斥）')
     parser.add_argument('--sync', action='store_true',
-                       help='启用增量同步模式（与 --notebook-id 配合使用），只导出有更新的笔记并清理已删除的文件')
+                       help='启用增量同步模式（与 --notebook-id 或 --all-notebooks 配合使用），只导出有更新的笔记并清理已删除的文件')
 
     args = parser.parse_args()
+
+    # 检查互斥参数
+    if args.notebook_id and args.all_notebooks:
+        print("❌ 错误: --notebook-id 和 --all-notebooks 不能同时使用")
+        print("   请只使用其中一个参数")
+        return
 
     # 创建输出目录
     os.makedirs(args.output, exist_ok=True)
@@ -587,6 +597,25 @@ def main():
                 export_notebook_markdown_incremental(client, target_notebook, args.output)
             else:
                 export_notebook_markdown(client, target_notebook, args.output)
+
+    # 9. 如果指定了导出所有笔记本
+    if args.all_notebooks:
+        print("\n" + "=" * 50)
+        if args.sync:
+            print("📚 全部笔记本增量同步导出")
+        else:
+            print("📚 全部笔记本批量 Markdown 导出")
+        print("=" * 50)
+
+        total_notebooks = len(trees)
+        print(f"📒 共 {total_notebooks} 个笔记本需要导出\n")
+
+        for i, tree in enumerate(trees, 1):
+            print(f"\n[{i}/{total_notebooks}] 📒 正在导出笔记本: {tree.name}")
+            if args.sync:
+                export_notebook_markdown_incremental(client, tree, args.output)
+            else:
+                export_notebook_markdown(client, tree, args.output)
 
     print("\n🎉 完成！")
 

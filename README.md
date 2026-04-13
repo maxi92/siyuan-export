@@ -60,7 +60,8 @@ python main.py --token your_token_here
 | `--output` | 否 | ./output | 输出目录 |
 | `--doc-id` | 否 | - | 指定要导出的笔记（文档）ID |
 | `--notebook-id` | 否 | - | 指定要导出的笔记本 ID（导出该笔记本下所有笔记） |
-| `--sync` | 否 | - | 启用增量同步模式（需配合 `--notebook-id` 使用） |
+| `--all-notebooks` | 否 | - | 导出所有笔记本（与 `--notebook-id` 互斥） |
+| `--sync` | 否 | - | 启用增量同步模式（需配合 `--notebook-id` 或 `--all-notebooks` 使用） |
 
 ### 示例
 
@@ -82,6 +83,12 @@ python main.py --token your_token_here
 
 # 增量同步模式（只导出有更新的笔记，删除已不存在的笔记）
 ./run.sh --token your_token_here --notebook-id 20240806202611-ecxtzjt --sync
+
+# 导出所有笔记本
+./run.sh --token your_token_here --all-notebooks
+
+# 增量同步所有笔记本
+./run.sh --token your_token_here --all-notebooks --sync
 ```
 
 ## 输出说明
@@ -281,6 +288,7 @@ siyuan-export/
 - [x] 导出笔记内容为 Markdown 文件
 - [x] 支持表格转列表格式，提升 AI 可读性
 - [x] 支持批量导出笔记本下所有文档（按树形结构组织）
+- [x] 支持导出所有笔记本
 - [x] 支持增量同步模式（只更新有变化的笔记，删除已不存在的笔记）
 - [ ] 支持图片和资源文件导出
 

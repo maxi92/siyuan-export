@@ -38,6 +38,12 @@ Key capabilities:
 
 # Incremental sync mode (only export changed files, delete removed ones)
 ./run.sh --token your_api_token --notebook-id 20240806202611-ecxtzjt --sync
+
+# Export all notebooks
+./run.sh --token your_api_token --all-notebooks
+
+# Incremental sync all notebooks
+./run.sh --token your_api_token --all-notebooks --sync
 ```
 
 ### Installing dependencies
@@ -105,14 +111,16 @@ In SiYuan Note: Settings → About → API Token
   - `--output`: Output directory (default: `./output`)
   - `--doc-id`: Specific document ID to export (optional)
   - `--notebook-id`: Export entire notebook with tree-structured organization (optional)
-  - `--sync`: Enable incremental sync mode (only with `--notebook-id`)
+  - `--all-notebooks`: Export all notebooks (mutually exclusive with `--notebook-id`)
+  - `--sync`: Enable incremental sync mode (only with `--notebook-id` or `--all-notebooks`)
 - Workflow:
   1. Fetch notebooks → fetch docs per notebook → build trees
   2. Print tree to console + export JSON
   3. Export random document Markdown (with table conversion)
   4. **If `--doc-id` provided: export specific document Markdown (with table conversion)**
   5. **If `--notebook-id` provided: export all documents in the notebook with tree-structured file organization**
-  6. **If `--sync` flag also provided: incremental sync mode (create/update/delete based on timestamps)**
+  6. **If `--all-notebooks` provided: export all notebooks sequentially**
+  7. **If `--sync` flag also provided: incremental sync mode (create/update/delete based on timestamps)**
 - Output:
   - Tree structure: `output/siyuan_tree_YYYYMMDD_HHMMSS.json`
   - Random document Markdown: `output/{title}_{doc_id}.md`
@@ -188,6 +196,8 @@ Random selection → /api/export/exportMdContent → preprocess_markdown() → M
 (Alternative) --doc-id provided → /api/export/exportMdContent → preprocess_markdown() → Markdown file export
     ↓
 (Alternative) --notebook-id provided → recursive export → tree-structured directory with all Markdown files
+    ↓
+(Alternative) --all-notebooks provided → iterate all notebooks → export each notebook
     ↓
 (Alternative) --sync flag provided → incremental sync mode → compare timestamps → create/update/delete as needed
 ```
