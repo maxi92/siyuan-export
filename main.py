@@ -5,7 +5,7 @@
 1. 获取思源笔记中的所有笔记本列表
 2. 获取每个笔记本下的所有文档
 3. 根据文档路径构建树形结构
-4. 输出树形结构到控制台和 JSON 文件
+4. 输出树形结构到控制台
 
 使用方法：
 1. 在思源笔记中获取 API Token（设置 -> 关于 -> API Token）
@@ -13,118 +13,14 @@
 """
 
 import argparse
-import json
 import os
-import random
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List
 
 from siyuan_exporter.client import SiYuanClient
 from siyuan_exporter.tree_builder import TreeBuilder, NotebookNode, DocNode
 from siyuan_exporter.markdown_processor import preprocess_markdown
 from siyuan_exporter.sync_manager import SyncManager, NotebookSyncRecord, DocSyncRecord
-
-
-def export_to_json(trees: List[NotebookNode], output_path: str):
-    """
-    将树形结构导出为 JSON 文件
-
-    Args:
-        trees: 笔记本树形结构列表
-        output_path: 输出文件路径
-    """
-    data = [tree.to_dict() for tree in trees]
-
-    with open(output_path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-    print(f"\n✅ 树形结构已导出到: {output_path}")
-
-
-def collect_all_docs(trees: List[NotebookNode]) -> List[Dict[str, Any]]:
-    """
-    从树形结构中收集所有文档
-
-    Args:
-        trees: 笔记本树形结构列表
-
-    Returns:
-        文档列表，每个文档包含 id, title, notebook_name
-    """
-    docs = []
-
-    def traverse(node, notebook_name: str):
-        if isinstance(node, NotebookNode):
-            for child in node.children:
-                traverse(child, node.name)
-        else:
-            docs.append({
-                "id": node.id,
-                "title": node.title,
-                "notebook_name": notebook_name
-            })
-            for child in node.children:
-                traverse(child, notebook_name)
-
-    for tree in trees:
-        traverse(tree, tree.name)
-
-    return docs
-
-
-def export_random_doc_markdown(client: SiYuanClient, trees: List[NotebookNode], output_dir: str):
-    """
-    随机选择一个笔记并导出其 Markdown 内容
-
-    Args:
-        client: SiYuanClient 实例
-        trees: 笔记本树形结构列表
-        output_dir: 输出目录
-
-    Returns:
-        是否成功导出
-    """
-    # 收集所有文档
-    all_docs = collect_all_docs(trees)
-
-    if not all_docs:
-        print("\n⚠️ 没有找到任何笔记，无法导出 Markdown")
-        return False
-
-    # 随机选择一个文档
-    random_doc = random.choice(all_docs)
-    doc_id = random_doc["id"]
-    doc_title = random_doc["title"]
-    notebook_name = random_doc["notebook_name"]
-
-    print(f"\n🎲 随机选择笔记: [{notebook_name}] {doc_title}")
-    print(f"   笔记 ID: {doc_id}")
-
-    # 获取 Markdown 内容
-    print("   正在获取 Markdown 内容...")
-    markdown_content = client.get_doc_markdown(doc_id)
-
-    if markdown_content is None:
-        print("   ❌ 获取 Markdown 内容失败")
-        return False
-
-    # 预处理：还原字面换行符并转换表格为列表格式
-    markdown_content = preprocess_markdown(markdown_content)
-
-    # 保存到文件
-    safe_title = "".join(c for c in doc_title if c.isalnum() or c in (' ', '-', '_')).strip()
-    if not safe_title:
-        safe_title = doc_id
-
-    output_file = os.path.join(output_dir, f"{safe_title}_{doc_id}.md")
-
-    with open(output_file, 'w', encoding='utf-8') as f:
-        f.write(markdown_content)
-
-    print(f"   ✅ Markdown 已导出到: {output_file}")
-    print(f"   文件大小: {len(markdown_content)} 字符")
-
-    return True
 
 
 def export_single_doc_markdown(client: SiYuanClient, doc_id: str, output_dir: str):
@@ -497,7 +393,8 @@ def main():
         print("   请只使用其中一个参数")
         return
 
-    # 创建输出目录
+    # 创建输出目录（在指定目录下创建"思源笔记"子目录）
+    args.output = os.path.join(args.output, "思源笔记")
     os.makedirs(args.output, exist_ok=True)
 
     # 初始化客户端
@@ -552,25 +449,14 @@ def main():
     # 4. 打印统计摘要
     print_summary(trees)
 
-    # 5. 导出到 JSON 文件
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = os.path.join(args.output, f"siyuan_tree_{timestamp}.json")
-    export_to_json(trees, output_file)
-
-    # 6. 随机选择一个笔记并导出其 Markdown 内容
-    print("\n" + "=" * 50)
-    print("📝 随机笔记 Markdown 导出")
-    print("=" * 50)
-    export_random_doc_markdown(client, trees, args.output)
-
-    # 7. 如果指定了笔记 ID，导出该笔记的 Markdown
+    # 5. 如果指定了笔记 ID，导出该笔记的 Markdown
     if args.doc_id:
         print("\n" + "=" * 50)
         print("📄 指定笔记 Markdown 导出")
         print("=" * 50)
         export_single_doc_markdown(client, args.doc_id, args.output)
 
-    # 8. 如果指定了笔记本 ID，导出该笔记本下所有笔记的 Markdown
+    # 6. 如果指定了笔记本 ID，导出该笔记本下所有笔记的 Markdown
     if args.notebook_id:
         print("\n" + "=" * 50)
         if args.sync:
@@ -598,7 +484,7 @@ def main():
             else:
                 export_notebook_markdown(client, target_notebook, args.output)
 
-    # 9. 如果指定了导出所有笔记本
+    # 7. 如果指定了导出所有笔记本
     if args.all_notebooks:
         print("\n" + "=" * 50)
         if args.sync:

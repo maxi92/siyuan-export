@@ -10,8 +10,6 @@ Key capabilities:
 - Fetches notebook list via `/api/notebook/lsNotebooks`
 - Queries all documents per notebook via `/api/query/sql`
 - Builds hierarchical tree structure from flat document data
-- Exports tree structure to JSON
-- **Exports random document Markdown content via `/api/export/exportMdContent`**
 - **Exports specific document Markdown by `--doc-id`**
 - **Exports entire notebook as Markdown files by `--notebook-id` with tree-structured organization**
 - **Incremental sync mode via `--sync` flag (only updates changed files, deletes removed ones)**
@@ -71,6 +69,7 @@ In SiYuan Note: Settings → About → API Token
 - `get_doc_markdown(doc_id)`: Fetches Markdown content for a specific document via `/api/export/exportMdContent`
 - API uses Token auth in `Authorization` header
 - Default base URL: `http://127.0.0.1:6806`
+- All exports are placed under `{output_dir}/思源笔记/` subdirectory
 
 **TreeBuilder** (`siyuan_exporter/tree_builder.py`)
 - Transforms flat document list into hierarchical tree
@@ -101,7 +100,7 @@ In SiYuan Note: Settings → About → API Token
     3. Otherwise → skip (file unchanged)
   - `remove_orphaned_files()`: Deletes Markdown files and folders no longer present in SiYuan
   - `save_record()`: Persists current sync state to JSON
-- Sync record stored per notebook at `output/{notebook_name}/.last_sync.json`
+- Sync record stored per notebook at `思源笔记/{notebook_name}/.last_sync.json`
 
 **Main** (`main.py`)
 - CLI entry point with argparse
@@ -115,18 +114,16 @@ In SiYuan Note: Settings → About → API Token
   - `--sync`: Enable incremental sync mode (only with `--notebook-id` or `--all-notebooks`)
 - Workflow:
   1. Fetch notebooks → fetch docs per notebook → build trees
-  2. Print tree to console + export JSON
-  3. Export random document Markdown (with table conversion)
-  4. **If `--doc-id` provided: export specific document Markdown (with table conversion)**
-  5. **If `--notebook-id` provided: export all documents in the notebook with tree-structured file organization**
-  6. **If `--all-notebooks` provided: export all notebooks sequentially**
-  7. **If `--sync` flag also provided: incremental sync mode (create/update/delete based on timestamps)**
+  2. Print tree to console
+  3. **If `--doc-id` provided: export specific document Markdown (with table conversion)**
+  4. **If `--notebook-id` provided: export all documents in the notebook with tree-structured file organization**
+  5. **If `--all-notebooks` provided: export all notebooks sequentially**
+  6. **If `--sync` flag also provided: incremental sync mode (create/update/delete based on timestamps)**
 - Output:
-  - Tree structure: `output/siyuan_tree_YYYYMMDD_HHMMSS.json`
-  - Random document Markdown: `output/{title}_{doc_id}.md`
-  - **Specific document Markdown (when `--doc-id` used): `output/{title}_{doc_id}.md`**
-  - **Notebook export (when `--notebook-id` used): `output/{notebook_name}/` with tree-structured subdirectories**
-  - **Sync record (when `--sync` used): `output/{notebook_name}/.last_sync.json`**
+  - All exports are placed under `{output_dir}/思源笔记/` subdirectory
+  - **Specific document Markdown (when `--doc-id` used): `思源笔记/{title}_{doc_id}.md`**
+  - **Notebook export (when `--notebook-id` used): `思源笔记/{notebook_name}/` with tree-structured subdirectories**
+  - **Sync record (when `--sync` used): `思源笔记/{notebook_name}/.last_sync.json`**
 
 ### SiYuan API Structure
 
@@ -173,11 +170,10 @@ order by updated asc
 ```
 
 **Implementation details:**
-- Random document selection using `random.choice()` from collected documents
 - Specific document export via `--doc-id` parameter
 - Safe filename generation (alphanumeric, spaces, hyphens, underscores only)
 - File naming format: `{safe_title}_{doc_id}.md`
-- Output directory: same as JSON export (default: `./output`)
+- Output directory: `{output_dir}/思源笔记/` subdirectory under the specified output directory
 - **All exported Markdown goes through `preprocess_markdown()` for table-to-list conversion**
 
 ### Data Flow
@@ -189,9 +185,7 @@ For each notebook: SQL query → flat doc list
     ↓
 TreeBuilder: path analysis → hierarchical tree
     ↓
-Console output + JSON export
-    ↓
-Random selection → /api/export/exportMdContent → preprocess_markdown() → Markdown file export
+Console output
     ↓
 (Alternative) --doc-id provided → /api/export/exportMdContent → preprocess_markdown() → Markdown file export
     ↓
@@ -233,7 +227,7 @@ Key points:
 ### Next Planned Features
 
 Based on README.md roadmap:
-- ~~Export document content as Markdown files~~ ✅ Implemented (random/single document export with table-to-list conversion)
+- ~~Export document content as Markdown files~~ ✅ Implemented (single document export with table-to-list conversion)
 - ~~Post-process Markdown for AI readability~~ ✅ Implemented (table-to-list conversion, image removal, YAML frontmatter extraction)
 - ~~Export all documents as Markdown files~~ ✅ Implemented (`--notebook-id` for batch export with tree-structured organization)
 - ~~Support sync/update functionality~~ ✅ Implemented (`--sync` flag with incremental create/update/delete)

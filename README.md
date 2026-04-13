@@ -1,6 +1,6 @@
 # 思源笔记导出工具
 
-调用思源笔记 API，将笔记导出为树形结构的 Python 工具。支持导出 JSON 结构、Markdown 内容，并提供表格转列表的 AI 友好格式。
+调用思源笔记 API，将笔记导出为 Markdown 文件的 Python 工具。支持按树形结构组织文件目录，并提供表格转列表的 AI 友好格式。
 
 ## 功能特性
 
@@ -8,7 +8,6 @@
 - ✅ 获取每个笔记本下的所有文档
 - ✅ 根据文档路径自动构建树形结构
 - ✅ 支持多级嵌套笔记（笔记下再建笔记）
-- ✅ 导出为 JSON 格式
 - ✅ **导出笔记内容为 Markdown 文件**
 - ✅ **批量导出笔记本下所有笔记，按树形结构组织文件目录**
 - ✅ **自动将 Markdown 表格转换为列表格式，提升 AI 可读性**
@@ -66,8 +65,11 @@ python main.py --token your_token_here
 ### 示例
 
 ```bash
-# 基本用法（导出树形结构 + 随机一篇笔记的 Markdown）
+# 基本用法（只查看树形结构，不导出 Markdown）
 ./run.sh --token your_token_here
+
+# 导出指定笔记为 Markdown
+./run.sh --token your_token_here --doc-id 20240806202611-ecxtzjt
 
 # 指定输出目录
 ./run.sh --token your_token_here --output ./my_export
@@ -95,17 +97,16 @@ python main.py --token your_token_here
 
 程序运行后会输出以下内容：
 
-1. **控制台输出**：树形结构的可视化展示
-2. **JSON 文件**：`output/siyuan_tree_YYYYMMDD_HHMMSS.json`
-3. **Markdown 文件**：`output/{标题}_{笔记ID}.md`
-4. **笔记本批量导出**（使用 `--notebook-id`）：`output/{笔记本名称}/` 目录，内部按树形结构组织
+1. **控制台输出**：树形结构的可视化展示和统计摘要
+2. **Markdown 文件**（使用 `--doc-id`）：`思源笔记/{标题}_{笔记ID}.md`
+3. **笔记本批量导出**（使用 `--notebook-id` 或 `--all-notebooks`）：`思源笔记/{笔记本名称}/` 目录，内部按树形结构组织
 
 ### 笔记本批量导出的文件结构
 
 使用 `--notebook-id` 参数导出时，文件按树形结构组织：
 
 ```
-output/
+思源笔记/
 └── 笔记本名称/
     ├── 父笔记.md              # 父笔记本身
     ├── 父笔记/                # 子笔记文件夹（与父笔记同名）
@@ -140,7 +141,7 @@ output/
 
 **同步记录：**
 
-每个笔记本的同步状态会保存在 `output/{笔记本名称}/.last_sync.json` 文件中，包含：
+每个笔记本的同步状态会保存在 `思源笔记/{笔记本名称}/.last_sync.json` 文件中，包含：
 - 上次同步时间
 - 每个笔记的 ID、标题、更新时间、文件路径
 
@@ -204,37 +205,6 @@ output/
 📒 笔记本名称: 3 篇文档
 
 总计: 1 个笔记本, 3 篇文档
-```
-
-### JSON 结构示例
-
-```json
-[
-  {
-    "id": "20240806202611-ecxtzjt",
-    "name": "笔记本名称",
-    "icon": "",
-    "children": [
-      {
-        "id": "20250311204950-6dq3vcj",
-        "title": "一级笔记标题",
-        "updated": "20250311205339",
-        "path": "/20240806202611-ecxtzjt/20250311204950-6dq3vcj.sy",
-        "level": 0,
-        "children": [
-          {
-            "id": "20250311205000-abc123",
-            "title": "二级笔记标题",
-            "updated": "20250311205400",
-            "path": "/20240806202611-ecxtzjt/20250311204950-6dq3vcj/20250311205000-abc123.sy",
-            "level": 1,
-            "children": []
-          }
-        ]
-      }
-    ]
-  }
-]
 ```
 
 ## 项目结构
