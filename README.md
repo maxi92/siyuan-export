@@ -141,7 +141,7 @@ python main.py --token your_token_here
 
 **同步记录：**
 
-每个笔记本的同步状态会保存在 `思源笔记/{笔记本名称}/.last_sync.json` 文件中，包含：
+每个笔记本的同步状态会保存在 `.siyuan-export/sync/{笔记本ID}.json` 文件中（与应用代码分离，不随导出内容一起），包含：
 - 上次同步时间
 - 每个笔记的 ID、标题、更新时间、文件路径
 

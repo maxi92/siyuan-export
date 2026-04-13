@@ -12,6 +12,9 @@ __pycache__/
 # 输出文件
 output/
 
+# 应用配置数据
+.siyuan-export/
+
 # 环境变量
 .env
 .env.*

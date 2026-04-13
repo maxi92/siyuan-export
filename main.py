@@ -186,7 +186,7 @@ def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: No
         notebook_node: 笔记本节点（包含树形结构）
         output_dir: 输出目录
     """
-    sync_manager = SyncManager(output_dir)
+    sync_manager = SyncManager()  # 使用默认配置目录 .siyuan-export/sync
 
     # 创建安全的笔记本文件夹名称（处理重名情况）
     safe_notebook_name = "".join(c for c in notebook_node.name if c.isalnum() or c in (' ', '-', '_')).strip()

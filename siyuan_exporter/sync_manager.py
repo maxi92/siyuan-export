@@ -58,25 +58,29 @@ class NotebookSyncRecord:
 class SyncManager:
     """增量同步管理器"""
 
-    SYNC_RECORD_FILENAME = ".last_sync.json"
+    def __init__(self, config_dir: str = None):
+        """
+        初始化同步管理器
 
-    def __init__(self, output_dir: str):
-        self.output_dir = output_dir
+        Args:
+            config_dir: 配置目录路径，默认为项目根目录下的 .siyuan-export/sync
+        """
+        if config_dir is None:
+            # 默认存储在项目根目录下的 .siyuan-export/sync 中
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            config_dir = os.path.join(project_root, ".siyuan-export", "sync")
+
+        self.config_dir = config_dir
         self._records: Dict[str, NotebookSyncRecord] = {}  # notebook_id -> record
         self._loaded = False
 
-    def _get_safe_notebook_name(self, name: str, notebook_id: str) -> str:
-        """生成安全的笔记本文件夹名称"""
-        safe_name = "".join(c for c in name if c.isalnum() or c in (' ', '-', '_')).strip()
-        if not safe_name:
-            safe_name = notebook_id
-        return safe_name
+        # 确保配置目录存在
+        os.makedirs(self.config_dir, exist_ok=True)
 
     def _get_sync_record_path(self, notebook_node: NotebookNode) -> str:
         """获取同步记录文件路径"""
-        safe_name = self._get_safe_notebook_name(notebook_node.name, notebook_node.id)
-        notebook_dir = os.path.join(self.output_dir, safe_name)
-        return os.path.join(notebook_dir, self.SYNC_RECORD_FILENAME)
+        # 使用 notebook_id 作为文件名，避免笔记本重命名导致的问题
+        return os.path.join(self.config_dir, f"{notebook_node.id}.json")
 
     def load_record(self, notebook_node: NotebookNode) -> Optional[NotebookSyncRecord]:
         """加载指定笔记本的同步记录"""
@@ -136,10 +140,6 @@ class SyncManager:
         existing_files = set()
 
         for root, dirs, files in os.walk(notebook_dir):
-            # 跳过同步记录文件
-            if self.SYNC_RECORD_FILENAME in files:
-                files.remove(self.SYNC_RECORD_FILENAME)
-
             for file in files:
                 if file.endswith('.md'):
                     full_path = os.path.join(root, file)
@@ -289,77 +289,3 @@ class SyncManager:
 
         return deleted_files, deleted_folders
 
-    def sync_notebook(self, notebook_node: NotebookNode) -> Tuple[int, int, int]:
-        """
-        执行笔记本的增量同步分析
-
-        Args:
-            notebook_node: 笔记本节点
-
-        Returns:
-            (需要创建数, 需要更新数, 需要删除数)
-        """
-        record = self.load_record(notebook_node)
-        new_record = NotebookSyncRecord(
-            notebook_id=notebook_node.id,
-            notebook_name=notebook_node.name,
-            last_sync=datetime.now().isoformat(),
-            docs={}
-        )
-
-        to_create = 0
-        to_update = 0
-
-        def analyze_doc(node: DocNode, file_path: str):
-            """分析单个文档的同步状态"""
-            nonlocal to_create, to_update
-
-            doc_record = record.docs.get(node.id) if record else None
-
-            if doc_record is None:
-                to_create += 1
-            elif node.updated > doc_record.updated:
-                to_update += 1
-
-            # 记录当前状态
-            new_record.docs[node.id] = DocSyncRecord(
-                doc_id=node.id,
-                title=node.title,
-                updated=node.updated,
-                last_sync=datetime.now().isoformat(),
-                file_path=file_path
-            )
-
-        def traverse(node: DocNode, current_path: str):
-            """递归遍历文档树"""
-            safe_title = "".join(c for c in node.title if c.isalnum() or c in (' ', '-', '_')).strip()
-            if not safe_title:
-                safe_title = node.id
-            if len(safe_title) > 100:
-                safe_title = safe_title[:100]
-
-            filename = f"{safe_title}_{node.id}.md"
-            file_path = os.path.join(current_path, filename)
-
-            analyze_doc(node, file_path)
-
-            # 处理子文档
-            if node.children:
-                safe_folder_name = safe_title
-                child_path = os.path.join(current_path, safe_folder_name)
-                for child in node.children:
-                    traverse(child, child_path)
-
-        # 遍历所有文档
-        for doc_node in notebook_node.children:
-            traverse(doc_node, "")
-
-        # 计算需要删除的数量
-        safe_name = self._get_safe_notebook_name(notebook_node.name, notebook_node.id)
-        notebook_dir = os.path.join(self.output_dir, safe_name)
-
-        expected_files = self.get_expected_files(notebook_node)
-        existing_files = self.get_existing_files(notebook_dir) if os.path.exists(notebook_dir) else set()
-        to_delete = len(existing_files - expected_files)
-
-        return to_create, to_update, to_delete

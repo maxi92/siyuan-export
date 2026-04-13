@@ -100,7 +100,7 @@ In SiYuan Note: Settings → About → API Token
     3. Otherwise → skip (file unchanged)
   - `remove_orphaned_files()`: Deletes Markdown files and folders no longer present in SiYuan
   - `save_record()`: Persists current sync state to JSON
-- Sync record stored per notebook at `思源笔记/{notebook_name}/.last_sync.json`
+- Sync record stored per notebook at `.siyuan-export/sync/{notebook_id}.json` (separate from exported content)
 
 **Main** (`main.py`)
 - CLI entry point with argparse
@@ -123,7 +123,7 @@ In SiYuan Note: Settings → About → API Token
   - All exports are placed under `{output_dir}/思源笔记/` subdirectory
   - **Specific document Markdown (when `--doc-id` used): `思源笔记/{title}_{doc_id}.md`**
   - **Notebook export (when `--notebook-id` used): `思源笔记/{notebook_name}/` with tree-structured subdirectories**
-  - **Sync record (when `--sync` used): `思源笔记/{notebook_name}/.last_sync.json`**
+  - **Sync record (when `--sync` used): `.siyuan-export/sync/{notebook_id}.json` (application config, separate from exports)**
 
 ### SiYuan API Structure
 
