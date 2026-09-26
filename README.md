@@ -26,8 +26,8 @@
 ./install.sh
 
 # 或手动安装
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -46,7 +46,7 @@ pip install -r requirements.txt
 ./run.sh --token your_token_here
 
 # 或手动激活虚拟环境后运行
-source venv/bin/activate
+source .venv/bin/activate
 python main.py --token your_token_here
 ```
 
@@ -221,7 +221,7 @@ siyuan-export/
 ├── requirements.txt             # 依赖项
 ├── README.md                    # 项目说明
 ├── CLAUDE.md                    # Claude Code 开发指南
-├── venv/                        # Python 虚拟环境（自动创建）
+├── .venv/                       # Python 虚拟环境（自动创建）
 └── siyuan_exporter/             # 核心模块
     ├── __init__.py
     ├── client.py                # API 客户端

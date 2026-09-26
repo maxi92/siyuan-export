@@ -3,7 +3,7 @@
 """
 
 import requests
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 
 class SiYuanClient:
@@ -14,13 +14,16 @@ class SiYuanClient:
         初始化客户端
 
         Args:
-            token: API Token（在思源笔记设置-关于-API Token 处获取）
+            token: API Token（在思源笔记设置-关于-API Token 处获取）。
+                   允许传裸 token 或带 "Token " 前缀的形式，内部统一归一化。
             base_url: API 基础地址，默认 http://127.0.0.1:6806
         """
         self.token = token
+        if not self.token.startswith(("Token ", "token ")):
+            self.token = "Token " + self.token
         self.base_url = base_url.rstrip('/')
         self.headers = {
-            'Authorization': token,
+            'Authorization': self.token,
             'Content-Type': 'application/json'
         }
 
@@ -68,8 +71,14 @@ class SiYuanClient:
         """
         url = f"{self.base_url}/api/query/sql"
 
-        # 构建 SQL 查询语句
-        stmt = f"select id, content, updated, path from blocks where box='{notebook_id}' and type='d' order by updated asc"
+        # 构建 SQL 查询语句。
+        # ⚠️ 必须显式加 LIMIT：思源对无 LIMIT 的 SELECT 有隐式行数上限，
+        # 实测超过上限时静默截断、不报任何错误（曾导致 83 篇只查出 64 篇）。
+        stmt = (
+            f"select id, content, updated, path from blocks "
+            f"where box='{notebook_id}' and type='d' "
+            f"order by updated asc limit 100000"
+        )
 
         body = {"stmt": stmt}
 
@@ -94,7 +103,7 @@ class SiYuanClient:
             print(f"查询文档时出错: {e}")
             return []
 
-    def get_doc_markdown(self, doc_id: str) -> Optional[str]:
+    def get_doc_markdown(self, doc_id: str) -> Optional[Tuple[str, str]]:
         """
         获取指定笔记的 Markdown 内容
 
@@ -102,7 +111,8 @@ class SiYuanClient:
             doc_id: 笔记 ID
 
         Returns:
-            Markdown 内容字符串，获取失败返回 None
+            (Markdown 内容, 人类可读路径 hPath) 元组，hPath 形如 "/父标题/标题"，
+            不含笔记本名；获取失败返回 None
         """
         url = f"{self.base_url}/api/export/exportMdContent"
 
@@ -114,7 +124,8 @@ class SiYuanClient:
             resp_json = response.json()
 
             if resp_json.get("code") == 0 and "data" in resp_json:
-                return resp_json["data"].get("content")
+                data = resp_json["data"]
+                return (data.get("content") or "", data.get("hPath") or "")
             else:
                 print(f"获取 Markdown 失败: {resp_json.get('msg', '未知错误')}")
                 return None

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Set, Tuple
 
-from siyuan_exporter.tree_builder import DocNode, NotebookNode
+from siyuan_exporter.tree_builder import DocNode, NotebookNode, sanitize_filename
 
 
 def _parse_time(time_str: str) -> Optional[datetime]:
@@ -88,10 +88,10 @@ class SyncManager:
             print(f"   ⚠️ 加载同步记录失败: {e}")
             return None
 
-    def save_record(self, notebook_node: NotebookNode):
-        """保存指定笔记本的同步记录（仅记录当前时间）"""
+    def save_record(self, notebook_node: NotebookNode, last_sync: str = None):
+        """保存指定笔记本的同步记录（默认记录当前时间，可传入指定时刻）"""
         record_path = self._get_sync_record_path(notebook_node)
-        record = NotebookSyncRecord(last_sync=datetime.now().isoformat())
+        record = NotebookSyncRecord(last_sync=last_sync or datetime.now().isoformat())
 
         try:
             with open(record_path, 'w', encoding='utf-8') as f:
@@ -126,8 +126,9 @@ class SyncManager:
         if doc_updated is not None and sync_time is not None:
             return doc_updated > sync_time
 
-        # 回退到字符串比较（通常不正确，仅作为兜底）
-        return doc.updated > last_sync_time
+        # 时间解析失败时兜底：宁可多导一次，也不漏更新。
+        # （旧实现此处直接做字符串比较，但两种格式混比结果无意义，可能漏更新。）
+        return True
 
     def get_existing_files(self, notebook_dir: str) -> Set[str]:
         """
@@ -165,12 +166,8 @@ class SyncManager:
 
         def traverse(node: DocNode, current_path: str):
             """递归遍历文档树，计算预期文件路径"""
-            # 当前文档的文件路径
-            safe_title = "".join(c for c in node.title if c.isalnum() or c in (' ', '-', '_')).strip()
-            if not safe_title:
-                safe_title = node.id
-            if len(safe_title) > 100:
-                safe_title = safe_title[:100]
+            # 当前文档的文件路径（必须与导出时使用同一清洗规则）
+            safe_title = sanitize_filename(node.title, fallback=node.id)
 
             # 根据是否需要 ID 后缀生成文件名
             if node.id in duplicate_ids:
@@ -182,11 +179,7 @@ class SyncManager:
 
             # 处理子文档
             if node.children:
-                safe_folder_name = "".join(c for c in node.title if c.isalnum() or c in (' ', '-', '_')).strip()
-                if not safe_folder_name:
-                    safe_folder_name = node.id
-                if len(safe_folder_name) > 100:
-                    safe_folder_name = safe_folder_name[:100]
+                safe_folder_name = sanitize_filename(node.title, fallback=node.id)
 
                 child_path = os.path.join(current_path, safe_folder_name)
                 for child in node.children:
@@ -209,11 +202,7 @@ class SyncManager:
         def traverse(node: DocNode, current_path: str):
             """递归遍历文档树，计算预期文件夹路径"""
             if node.children:
-                safe_folder_name = "".join(c for c in node.title if c.isalnum() or c in (' ', '-', '_')).strip()
-                if not safe_folder_name:
-                    safe_folder_name = node.id
-                if len(safe_folder_name) > 100:
-                    safe_folder_name = safe_folder_name[:100]
+                safe_folder_name = sanitize_filename(node.title, fallback=node.id)
 
                 folder_path = os.path.join(current_path, safe_folder_name)
                 expected_folders.add(folder_path)

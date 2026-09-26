@@ -16,15 +16,41 @@ import argparse
 import os
 import shutil
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 from siyuan_exporter.client import SiYuanClient
-from siyuan_exporter.tree_builder import TreeBuilder, NotebookNode, DocNode
-from siyuan_exporter.markdown_processor import preprocess_markdown
+from siyuan_exporter.tree_builder import TreeBuilder, NotebookNode, DocNode, sanitize_filename
+from siyuan_exporter.markdown_processor import preprocess_markdown, is_empty_document, prepend_frontmatter
 from siyuan_exporter.sync_manager import SyncManager
 
 
-def export_single_doc_markdown(client: SiYuanClient, doc_id: str, output_dir: str):
+def _format_updated(ts: str) -> str:
+    """思源时间戳 YYYYMMDDHHMMSS → 可读格式，解析失败原样返回"""
+    try:
+        return datetime.strptime(ts[:14], "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        return ts or ""
+
+
+def _find_doc(trees: List[NotebookNode], doc_id: str) -> Optional[DocNode]:
+    """在文档树中查找指定文档节点，找不到返回 None"""
+    def search(node):
+        for child in node.children:
+            if child.id == doc_id:
+                return child
+            found = search(child)
+            if found:
+                return found
+        return None
+    for tree in trees:
+        found = search(tree)
+        if found:
+            return found
+    return None
+
+
+def export_single_doc_markdown(client: SiYuanClient, doc_id: str, output_dir: str,
+                               trees: List[NotebookNode] = None):
     """
     导出指定笔记（文档）的 Markdown 内容
 
@@ -32,33 +58,42 @@ def export_single_doc_markdown(client: SiYuanClient, doc_id: str, output_dir: st
         client: SiYuanClient 实例
         doc_id: 笔记 ID
         output_dir: 输出目录
+        trees: 文档树列表（可选，用于从树中直接取文档标题）
     """
     print(f"\n📄 正在获取笔记 {doc_id} 的 Markdown 内容...")
 
-    markdown_content = client.get_doc_markdown(doc_id)
-    if markdown_content is None:
+    fetched = client.get_doc_markdown(doc_id)
+    if fetched is None:
         print("❌ 获取 Markdown 内容失败")
         return
+    markdown_content, h_path = fetched
 
-    # 预处理：还原字面换行符并转换表格为列表格式
+    # 预处理：转换表格为列表格式
     markdown_content = preprocess_markdown(markdown_content)
 
-    # 从内容中提取标题（如果有 YAML frontmatter 中的 title）
-    import re
-    title_match = re.search(r'^# 标题：(.+)$', markdown_content, re.MULTILINE)
-    if title_match:
-        doc_title = title_match.group(1).strip()
-    else:
-        # 尝试从第一行获取标题
-        first_line = markdown_content.split('\n')[0].strip()
-        if first_line.startswith('# '):
-            doc_title = first_line[2:].strip()
+    # 标题/更新时间优先级：文档树 > 内容 frontmatter/首个 H1 > 文档 ID
+    node = _find_doc(trees or [], doc_id)
+    doc_title = node.title if node else None
+    doc_updated = node.updated if node else ""
+    if not doc_title:
+        title_match = re.search(r'^# 标题：(.+)$', markdown_content, re.MULTILINE)
+        if title_match:
+            doc_title = title_match.group(1).strip()
         else:
-            doc_title = doc_id
+            first_line = markdown_content.split('\n')[0].strip()
+            if first_line.startswith('# '):
+                doc_title = first_line[2:].strip()
+            else:
+                doc_title = doc_id
 
-    safe_title = "".join(c for c in doc_title if c.isalnum() or c in (' ', '-', '_')).strip()
-    if not safe_title:
-        safe_title = doc_id
+    markdown_content = prepend_frontmatter(
+        markdown_content,
+        title=doc_title,
+        source=h_path.lstrip('/') or doc_id,
+        updated=_format_updated(doc_updated),
+    )
+
+    safe_title = sanitize_filename(doc_title, fallback=doc_id)
 
     output_file = os.path.join(output_dir, f"{safe_title}.md")
     with open(output_file, 'w', encoding='utf-8') as f:
@@ -80,11 +115,7 @@ def _pre_scan_duplicate_titles(notebook_node: NotebookNode) -> set:
     def scan_node(node: DocNode, parent_path: str = ""):
         """递归扫描，记录每个路径下的标题"""
         # 使用 (父路径, 安全标题) 作为键，检测重复
-        safe_title = "".join(c for c in node.title if c.isalnum() or c in (' ', '-', '_')).strip()
-        if not safe_title:
-            safe_title = node.id
-        if len(safe_title) > 100:
-            safe_title = safe_title[:100]
+        safe_title = sanitize_filename(node.title, fallback=node.id)
 
         key = (parent_path, safe_title.lower())  # 使用小写比较，避免大小写问题
 
@@ -120,12 +151,7 @@ def _get_safe_filename(title: str, doc_id: str, need_id_suffix: bool = False) ->
         doc_id: 笔记 ID
         need_id_suffix: 是否需要添加 ID 后缀（同一目录下有同名笔记时）
     """
-    safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
-    if not safe_title:
-        safe_title = doc_id
-    # 限制文件名长度，避免系统限制
-    if len(safe_title) > 100:
-        safe_title = safe_title[:100]
+    safe_title: str = sanitize_filename(title, fallback=doc_id)
 
     if need_id_suffix:
         return f"{safe_title}_{doc_id}.md"
@@ -148,9 +174,7 @@ def export_notebook_markdown(client: SiYuanClient, notebook_node: NotebookNode, 
         output_dir: 输出目录
     """
     # 创建安全的笔记本文件夹名称
-    safe_notebook_name = "".join(c for c in notebook_node.name if c.isalnum() or c in (' ', '-', '_')).strip()
-    if not safe_notebook_name:
-        safe_notebook_name = notebook_node.id
+    safe_notebook_name = sanitize_filename(notebook_node.name, fallback=notebook_node.id)
 
     notebook_dir = os.path.join(output_dir, safe_notebook_name)
     os.makedirs(notebook_dir, exist_ok=True)
@@ -166,6 +190,7 @@ def export_notebook_markdown(client: SiYuanClient, notebook_node: NotebookNode, 
     total_docs = 0
     success_count = 0
     fail_count = 0
+    skipped_count = 0
 
     def export_doc_recursive(node: DocNode, current_dir: str, parent_title: str = ""):
         """
@@ -176,7 +201,7 @@ def export_notebook_markdown(client: SiYuanClient, notebook_node: NotebookNode, 
             current_dir: 当前所在的目录路径
             parent_title: 父文档标题（用于显示层级关系）
         """
-        nonlocal total_docs, success_count, fail_count
+        nonlocal total_docs, success_count, fail_count, skipped_count
 
         total_docs += 1
         doc_title = node.title
@@ -186,38 +211,48 @@ def export_notebook_markdown(client: SiYuanClient, notebook_node: NotebookNode, 
         print(f"{prefix}📄 正在导出: {doc_title}")
 
         # 获取 Markdown 内容
-        markdown_content = client.get_doc_markdown(doc_id)
+        fetched = client.get_doc_markdown(doc_id)
 
-        if markdown_content is None:
+        if fetched is None:
             print(f"{prefix}   ❌ 获取失败: {doc_title}")
             fail_count += 1
             # 即使失败也继续处理子文档
         else:
+            markdown_content, h_path = fetched
             # 预处理 Markdown
             markdown_content = preprocess_markdown(markdown_content)
 
-            # 保存到文件
             need_suffix = doc_id in duplicate_ids
             filename = _get_safe_filename(doc_title, doc_id, need_suffix)
             output_file = os.path.join(current_dir, filename)
 
-            try:
-                with open(output_file, 'w', encoding='utf-8') as f:
-                    f.write(markdown_content)
-                success_count += 1
-            except Exception as e:
-                print(f"{prefix}   ❌ 写入文件失败: {e}")
-                fail_count += 1
+            # 纯容器文档（只为挂子文档而存在）跳过，避免知识库产生噪声 chunk
+            if is_empty_document(markdown_content):
+                print(f"{prefix}   ⏭️  空文档，跳过")
+                skipped_count += 1
+                if os.path.exists(output_file):
+                    os.remove(output_file)
+            else:
+                # 头部加 frontmatter 元信息，便于知识库检索与溯源
+                markdown_content = prepend_frontmatter(
+                    markdown_content,
+                    title=doc_title,
+                    source=(notebook_node.name + h_path) if h_path else notebook_node.name,
+                    updated=_format_updated(node.updated),
+                )
+                # 保存到文件
+                try:
+                    with open(output_file, 'w', encoding='utf-8') as f:
+                        f.write(markdown_content)
+                    success_count += 1
+                except Exception as e:
+                    print(f"{prefix}   ❌ 写入文件失败: {e}")
+                    fail_count += 1
 
         # 处理子文档
         if node.children:
             # 创建以当前文档命名的子文件夹存放子文档
-            safe_folder_name = "".join(c for c in doc_title if c.isalnum() or c in (' ', '-', '_')).strip()
-            if not safe_folder_name:
-                safe_folder_name = doc_id
-            # 限制文件夹名长度
-            if len(safe_folder_name) > 100:
-                safe_folder_name = safe_folder_name[:100]
+            safe_folder_name = sanitize_filename(doc_title, fallback=doc_id)
 
             child_dir = os.path.join(current_dir, safe_folder_name)
             os.makedirs(child_dir, exist_ok=True)
@@ -231,7 +266,7 @@ def export_notebook_markdown(client: SiYuanClient, notebook_node: NotebookNode, 
     for doc_node in notebook_node.children:
         export_doc_recursive(doc_node, notebook_dir)
 
-    print(f"\n📊 导出统计: 总计 {total_docs} 篇, 成功 {success_count} 篇, 失败 {fail_count} 篇")
+    print(f"\n📊 导出统计: 总计 {total_docs} 篇, 成功 {success_count} 篇, 跳过空文档 {skipped_count} 篇, 失败 {fail_count} 篇")
 
 
 def _remove_empty_dirs(dir_path: str):
@@ -267,9 +302,7 @@ def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: No
     sync_manager = SyncManager()  # 使用默认配置目录 .siyuan-export/sync
 
     # 创建安全的笔记本文件夹名称（处理重名情况）
-    safe_notebook_name = "".join(c for c in notebook_node.name if c.isalnum() or c in (' ', '-', '_')).strip()
-    if not safe_notebook_name:
-        safe_notebook_name = notebook_node.id
+    safe_notebook_name = sanitize_filename(notebook_node.name, fallback=notebook_node.id)
 
     notebook_dir = os.path.join(output_dir, safe_notebook_name)
     os.makedirs(notebook_dir, exist_ok=True)
@@ -296,6 +329,12 @@ def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: No
         print(f"   📋 上次同步时间: {last_sync_time[:19]}")
     else:
         print(f"   📋 首次同步，将创建所有文件")
+
+    # 记录本次同步的开始时刻。最终以这个时间更新同步记录：
+    # 若在导出期间（取到内容之后、记录写入之前）编辑了笔记，其 updated 仍会晚于
+    # 开始时刻，下次同步不会被漏掉。若记录导出结束时刻，这个窗口内
+    # 的编辑会因秒级时间戳比较而永久遗漏。
+    sync_start_time = datetime.now().isoformat()
 
     # 统计
     stats = {"created": 0, "updated": 0, "unchanged": 0, "failed": 0, "deleted_files": 0, "deleted_folders": 0}
@@ -329,16 +368,30 @@ def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: No
         if needs_update:
             print(f"{prefix}{action}: {doc_title}")
 
-            # 获取 Markdown 内容
-            markdown_content = client.get_doc_markdown(doc_id)
+        # 获取 Markdown 内容
+        fetched = client.get_doc_markdown(doc_id)
 
-            if markdown_content is None:
-                print(f"{prefix}   ❌ 获取失败: {doc_title}")
-                stats["failed"] += 1
+        if fetched is None:
+            print(f"{prefix}   ❌ 获取失败: {doc_title}")
+            stats["failed"] += 1
+        else:
+            markdown_content, h_path = fetched
+            # 预处理 Markdown
+            markdown_content = preprocess_markdown(markdown_content)
+
+            # 纯容器文档跳过并清理旧文件
+            if is_empty_document(markdown_content):
+                print(f"{prefix}   ⏭️  空文档，跳过")
+                if os.path.exists(file_path):
+                    os.remove(file_path)
             else:
-                # 预处理 Markdown
-                markdown_content = preprocess_markdown(markdown_content)
-
+                # 头部加 frontmatter 元信息
+                markdown_content = prepend_frontmatter(
+                    markdown_content,
+                    title=doc_title,
+                    source=(notebook_node.name + h_path) if h_path else notebook_node.name,
+                    updated=_format_updated(node.updated),
+                )
                 # 保存到主输出目录
                 try:
                     with open(file_path, 'w', encoding='utf-8') as f:
@@ -359,11 +412,7 @@ def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: No
 
         # 处理子文档
         if node.children:
-            safe_folder_name = "".join(c for c in doc_title if c.isalnum() or c in (' ', '-', '_')).strip()
-            if not safe_folder_name:
-                safe_folder_name = doc_id
-            if len(safe_folder_name) > 100:
-                safe_folder_name = safe_folder_name[:100]
+            safe_folder_name = sanitize_filename(doc_title, fallback=doc_id)
 
             child_dir = os.path.join(current_dir, safe_folder_name)
             os.makedirs(child_dir, exist_ok=True)
@@ -394,8 +443,8 @@ def export_notebook_markdown_incremental(client: SiYuanClient, notebook_node: No
     else:
         print(f"   🗑️  删除 {deleted_files} 个文件, {deleted_folders} 个文件夹")
 
-    # 保存同步记录（仅记录当前时间）
-    sync_manager.save_record(notebook_node)
+    # 保存同步记录（记录本次同步的开始时刻）
+    sync_manager.save_record(notebook_node, last_sync=sync_start_time)
     print(f"   💾 同步记录已保存")
 
     # 清理增量导出目录中的空文件夹
@@ -537,7 +586,7 @@ def main():
         print("\n" + "=" * 50)
         print("📄 指定笔记 Markdown 导出")
         print("=" * 50)
-        export_single_doc_markdown(client, args.doc_id, siyuan_output)
+        export_single_doc_markdown(client, args.doc_id, siyuan_output, trees=trees)
 
     # 6. 如果指定了笔记本 ID，导出该笔记本下所有笔记的 Markdown
     if args.notebook_id:
